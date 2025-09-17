@@ -1,19 +1,41 @@
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
-*.egg-info/
-.build/
-dist/
-.coverage
-.pytest_cache/
-.cache/
+*.pyo
+*.pyd
+*.so
+*.dll
 
-# Environnements
+# --- Virtual envs ---
 .venv/
+env/
 venv/
-.env
-.env.*
-# IDE
-.idea/
+
+# --- Jupyter / IPython ---
+.ipynb_checkpoints/
+
+# --- Logs & debug ---
+*.log
+*.tmp
+*.swp
+
+# --- Coverage / Tests ---
+.pytest_cache/
+.coverage
+htmlcov/
+.cache/
+pytest-cache-files-*/
+
+# --- Build & dist ---
+build/
+dist/
+*.egg-info/
+
+# --- IDE / Editor ---
 .vscode/
+.idea/
+*.iml
+
+# --- OS specific ---
 .DS_Store
+Thumbs.db
