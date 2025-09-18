@@ -1,0 +1,53 @@
+{
+  "soft glam": [
+    {
+      "require_tokens": ["glam"],
+      "context_clues": ["natural", "romantic", "refined", "soft"]
+    }
+  ],
+  "evening": [
+    {
+      "require_tokens": ["glam"],
+      "context_clues": ["night", "dark", "deep", "dramatic"]
+    }
+  ],
+  "romantic": [
+    {
+      "require_tokens": ["rose", "soft"],
+      "context_clues": ["pink", "dusty", "rosy", "feminine"]
+    }
+  ],
+  "natural": [
+    {
+      "require_tokens": ["dusty", "soft"],
+      "context_clues": ["pink", "peachy", "muted"]
+    },
+    {
+    "require_tokens": ["makeup"],
+    "context_clues": ["subtle", "brown", "minimal"]
+  }
+  ],
+  "elegant": [
+    {
+      "require_tokens": ["soft"],
+      "context_clues": ["dusty", "ivory", "refined", "matte"]
+    }
+  ],
+  "fresh": [
+    {
+      "require_tokens": ["glow"],
+      "context_clues": ["bronze", "shimmer", "radiant", "luminous"]
+    },
+    {
+      "require_tokens": ["bright"],
+      "context_clues": ["coral", "lips", "hydrated", "healthy"]
+    }
+  ],
+  "glamorous": [
+  {
+    "require_tokens": ["intense"],
+    "context_clues": ["red", "look", "bold", "vibrant"]
+  }
+]
+
+}

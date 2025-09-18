@@ -1,0 +1,101 @@
+[
+    {
+        "name": "Fenty Beauty Gloss Bomb Universal Lip Luminizer",
+        "category": "Lipstick",
+        "price": 22.0,
+        "brand": "Fenty Beauty",
+        "color": "pink nude",
+        "description": "An ultimate, gotta-have-it lip gloss with explosive shine that feels as good as it looks.",
+        "image_url": "https://fentybeauty.com/products/gloss-bomb-universal-lip-luminizer-fenty-glow?variant=35110478774317"
+    },
+    {
+        "name": "r.e.m. beauty Midnight Shadows Lustrous Liquid Eyeshadow",
+        "category": "Eyeshadow",
+        "price": 18.0,
+        "brand": "r.e.m. beauty",
+        "color": "iridescent pink",
+        "description": "Achieve effortless, crease-resistant color with a single stroke. Universally flattering shades glide on weightlessly and dry to a lustrous finish.",
+        "image_url": "https://rembeauty.com/products/midnight-shadows-liquid-eyeshadow-lustrous?variant=41598051057830"
+    },
+    {
+        "name": "Laura Mercier Tinted Moisturizer Natural Skin Perfector",
+        "category": "Tinted Moisturizer",
+        "price": 54.0,
+        "brand": "Laura Mercier",
+        "color": "warm beige",
+        "description": "Lightweight, sheer coverage for a natural, dewy finish. Hydrates for 24 hours, locks in moisture, and protects with SPF 30 and antioxidants.",
+        "image_url": "https://www.lauramercier.com/products/tinted-moisturizer-natural-skin-perfector-spf-30?variant=43486656659695"
+    },
+    {
+        "name": "bareMinerals Original Loose Powder Foundation SPF 15",
+        "category": "Foundation",
+        "price": 39.0,
+        "brand": "bareMinerals",
+        "color": "fair beige",
+        "description": "All-day coverage with a luminous finish. Blurs pores and imperfections while promoting clearer, healthier-looking skin. Won\u2019t clog pores, cause breakouts, or settle into fine lines.",
+        "image_url": "https://www.bareminerals.com/products/original-loose-powder-foundation-spf-15?variant=40493735837781"
+    },
+    {
+        "name": "Fenty Beauty Pro Filt'r Soft Matte Longwear Foundation",
+        "category": "Foundation",
+        "price": 40.0,
+        "brand": "Fenty Beauty",
+        "color": "deep beige",
+        "description": "Soft matte, buildable coverage that stays fresh all day. Climate-adaptive technology resists heat, sweat, and humidity while instantly absorbing oil for a shine-free finish. Lightweight, non-drying, and pore-blurring with 50 inclusive shades",
+        "image_url": "https://www.fentybeauty.com/products/pro-filtr-soft-matte-longwear-foundation-420"
+    },
+    {
+        "name": "Laura Mercier Translucent Loose Setting Powder",
+        "category": "Setting Powder",
+        "price": 52.0,
+        "brand": "Laura Mercier",
+        "color": "translucent",
+        "description": "Instantly blurs pores, fine lines, and imperfections while extending makeup wear for up to 16 hours. Hydrating, lightweight, and shine-controlling with a natural, cake-free finish. Breathable, non-comedogenic, and suitable for all skin types",
+        "image_url": "https://www.lauramercier.com/products/translucent-loose-setting-powder-ultra-blur?variant=43486659215599"
+    },
+    {
+        "name": "r.e.m. beauty On Your Collar Matte Lipstick",
+        "category": "Lipstick",
+        "price": 19.0,
+        "brand": "r.e.m. beauty",
+        "color": "warm peach",
+        "description": "Intensely pigmented, weightless matte color with up to 16-hour wear. Hydrating formula glides on smoothly, locks in moisture, and resists fading, drying, or feathering.",
+        "image_url": "https://rembeauty.com/products/on-your-collar-liquid-lipstick?variant=42620756492551"
+    },
+    {
+        "name": "Fenty Beauty Poutsicle Hydrating Lip Stain",
+        "category": "Lipstick",
+        "price": 28.0,
+        "brand": "Fenty Beauty",
+        "color": "soft pink",
+        "description": "Glossy color that leaves a soft, lasting tint with all-day hydration. Lightweight, feather-resistant formula locks in moisture for smooth, nourished lips. Buildable, sheer-to-medium coverage in vibrant shades.",
+        "image_url": "https://fentybeauty.com/products/poutsicle-hydrating-lip-stain-mai-type?variant=40383201968173"
+    },
+    {
+        "name": "Laura Mercier Caviar Stick Eye Shadow",
+        "category": "Eyeshadow",
+        "price": 33.0,
+        "brand": "Laura Mercier",
+        "color": "soft purple",
+        "description": "Effortless, creamy formula glides on smoothly with rich, blendable color. Longwearing, crease-proof, smudge-proof, and waterproof for up to 24 hours. Comfortable, transfer-resistant, and safe for sensitive skin and contact lens wearers.",
+        "image_url": "https://www.lauramercier.com/products/caviar-stick-eye-shadow?variant=45133280215279"
+    },
+    {
+        "name": "r.e.m. beauty On Your Collar Plumping Lip Gloss",
+        "category": "Lipstick",
+        "price": 17.0,
+        "brand": "r.e.m. beauty",
+        "color": "nude pink",
+        "description": "Instantly enhances lips with a cooling, tingling effect and a refreshing mint scent. Hydrating formula with a non-sticky, glossy finish leaves lips softer, smoother, and visibly fuller. Effortless application with a contoured, slanted-tip applicator.",
+        "image_url": "https://rembeauty.com/products/on-your-collar-plumping-lipgloss?variant=42620758262023"
+    },
+    {
+        "name": "Fenty Beauty Killawatt Freestyle Highlighter",
+        "category": "Highlighter",
+        "price": 40.0,
+        "brand": "Fenty Beauty",
+        "color": "bronzed peach",
+        "description": "Weightless, blendable formula delivers a soft glow or intense radiance for face and eyes. Superfine shimmer melts into skin for a smooth, long-lasting finish.",
+        "image_url": "https://fentybeauty.com/products/killawatt-freestyle-highlighter-ginger-bingemoscow-mule?variant=35110478807085"
+    }
+]

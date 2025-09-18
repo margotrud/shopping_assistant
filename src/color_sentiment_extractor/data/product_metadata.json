@@ -1,0 +1,18 @@
+{
+  "colors": [
+    "bronzed peach", "deep beige", "fair beige", "iridescent pink",
+    "nude pink", "pink nude", "soft pink", "soft purple",
+    "translucent", "warm beige", "warm peach"
+  ],
+  "categories": [
+    "Eyeshadow", "Foundation", "Highlighter", "Lipstick",
+    "Setting Powder", "Tinted Moisturizer"
+  ],
+  "brands": [
+    "Fenty Beauty", "Laura Mercier", "bareMinerals", "r.e.m. beauty"
+  ],
+  "price_range": {
+    "min": 17.0,
+    "max": 54.0
+  }
+}

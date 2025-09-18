@@ -1,0 +1,83 @@
+
+{
+  "daytime": {
+    "modifiers": [ "bare", "barely-there", "bronze", "brownish", "creamy", "dewy","dusty", "fair", "ivory", "light",
+      "luminous", "matte", "minimalist", "medium", "natural", "neutral",  "neutral-cool", "neutral-toned",
+      "neutral-warm", "off-white", "opaque", "pastel", "peach", "pinky", "powdery", "rose", "satin", "sheer", "silky",
+      "soft", "soft-focus", "subtle", "tan", "very fair", "very light", "warm", "warm-neutral", "warm-toned"],
+    "aliases": ["casual", "clean","everyday", "office", "work-appropriate", "daily", "daytime", "no makeup"]
+  },
+  "earthy": {
+  "modifiers": ["ashy", "bare", "barely-there", "bronze", "brownish", "creamy", "dusty", "fair", "ivory", "light",
+    "matte", "medium", "natural", "neutral", "neutral-warm",
+    "opaque", "peach", "powdery", "rose", "rustic","satin", "sheer", "soft", "subtle", "tan", "very fair", "warm",
+    "warm-neutral", "warm-toned"],
+  "aliases": ["terra cotta", "mocha", "clay", "soil", "earth tones", "earthy"]
+},
+  "edgy": {
+    "modifiers": ["ashy","bold", "bold-toned", "bright", "cool", "cool-toned", "dark", "deep", "electric", "glam",
+      "glittery", "glossy", "gold-flecked", "golden", "icy","intense", "metallic", "neon", "opaque","radiant",
+      "reddish", "rich", "rich-toned", "shimmery", "shiny", "sparkly", "ultra deep", "very dark", "vibrant",
+      "warm-toned"],
+    "aliases": ["grunge", "alternative style", "moody tones",  "rockstar", "gothic", "experimental", "edgy", "rock", "bold", "playful"]
+  },
+  "elegant": {
+    "modifiers": ["bare", "barely there", "bronze", "brownish", "creamy", "dusty", "fair", "glowy",
+      "ivory", "light", "luminous", "matte", "medium", "natural", "neutral", "neutral-warm",
+      "opaque", "peach", "pearly", "pinkish", "powdery", "radiant", "rosé", "rose", "satin", "sheer", "silky", "soft",
+      "soft-focus", "subtle", "tan", "very fair", "very light", "warm", "warm-neutral", "warm-toned"],
+    "aliases": ["timeless", "refined", "polished", "sophisticated", "formal", "elegant", "classy"]
+  },
+  "evening": {
+    "modifiers": [ "bold", "bold-toned", "bright", "bronze", "brownish", "cool", "cool-toned", "dark", "deep", "electric",
+      "glam", "glittery", "glossy", "gold-flecked", "golden", "glowy", "icy", "intense", "luminous", "matte",
+      "metallic", "natural", "neutral", "neutral-warm", "opaque", "peach", "pearly", "pinkish", "powdery",
+      "radiant", "reddish", "rich", "rich-toned", "rosé", "rose", "satin", "shimmery", "shiny", "silky", "soft",
+      "sparkly", "ultra deep", "very dark", "vibrant", "warm", "warm-toned"],
+    "aliases": ["night-out", "party", "after-dark", "club", "evening", "tropical"]
+  },
+  "fresh": {
+    "modifiers": ["bare", "barely-there", "bright","bronze", "creamy", "dewy","fair", "glowy", "ivory", "light", "luminous",
+      "medium", "minimalist", "natural", "neutral", "neutral-warm", "opaque", "pastel", "peach", "pearly", "pinkish",
+      "pinky", "powdery", "radiant", "rosé", "rose", "satin", "sheer", "silky", "soft", "soft-focus", "subtle", "tan",
+      "very fair", "very light", "warm", "warm-neutral", "warm-toned"],
+    "aliases": [
+      "summer", "hydrated", "airy", "youthful", "healthy", "fresh", "tropical"]
+  },
+  "glamorous": {
+    "modifiers": ["bold", "bold-toned", "bright", "bronze", "cool", "cool-toned", "dark", "deep", "dewy","electric", "glam",
+      "glittery", "glossy", "gold-flecked", "golden", "icy", "intense", "luminous", "matte", "metallic",
+      "opaque", "peach", "pearly","pinkish", "powdery", "radiant", "reddish", "rich", "rich-toned", "rosé", "rose",
+      "satin", "shimmery", "shiny", "silky", "soft", "sparkly", "ultra deep", "very dark", "vibrant", "warm",
+      "warm-toned"],
+    "aliases": ["red carpet", "evening", "party-ready", "diva","glamorous", "hollywood", "tropical", "dramatic"]
+  },
+  "natural": {
+    "modifiers": ["bare", "barely-there", "brownish", "creamy", "dewy", "dusty", "fair", "ivory", "light", "luminous", "matte",
+      "medium", "minimalist", "natural", "neutral", "neutral-cool", "neutral-toned", "neutral-warm", "off-white",
+      "opaque", "peach", "pinkish", "pinky", "powdery", "rose", "satin", "sheer", "silky", "soft", "soft-focus",
+      "subtle", "tan", "very fair", "very light", "warm", "warm-neutral", "warm-toned"],
+    "aliases": ["clean", "neutral", "everyday", "minimal", "invisible","skin-like", "effortless", "natural", "bare", "barely there", "no makeup"]
+  },
+
+  "romantic": {
+    "modifiers": ["bare", "barely-there", "bronze", "brownish", "creamy", "dewy","dusty", "fair", "glowy", "ivory", "light",
+      "luminous", "matte", "medium", "minimalist", "natural", "neutral", "neutral-warm", "opaque", "pastel", "peach",
+      "pearly", "pinkish", "pinky", "powdery", "radiant", "rosé", "rose", "satin", "sheer", "silky", "soft",
+      "soft-focus", "subtle", "tan", "very fair", "very light", "warm", "warm-neutral", "warm-toned"],
+    "aliases": ["valentine", "blushy", "feminine", "flirty", "date night", "romantic", "radiance"]
+  },
+  "soft glam": {
+    "modifiers": ["barely-there", "creamy", "glowy", "light", "luminous", "matte", "medium",
+      "natural", "neutral", "neutral-warm", "peach", "pinkish", "pinky", "powdery", "radiant", "rosé", "rose", "satin",
+      "sheer", "silky", "soft", "soft-focus", "subtle", "warm", "warm-toned"],
+    "aliases": ["soft","natural glam", "wedding", "enhanced but subtle", "refined luminous makeup", "soft glam","soft yet polished glam", "radiance",
+    "subtle sparkle", "barely there glam", "sof"]
+  },
+
+  "blush": {
+    "modifiers": ["pink"]
+  }
+
+
+}
