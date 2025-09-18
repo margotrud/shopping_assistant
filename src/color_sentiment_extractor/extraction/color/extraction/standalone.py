@@ -2,10 +2,10 @@
 # 1. Imports
 # ──────────────────────────────────────────────────────────────
 
-from extraction.color.constants import COSMETIC_NOUNS
-from extraction.color.recovery.llm_recovery import _extract_filtered_tokens
-from extraction.general.expression.expression_helpers import _inject_expression_modifiers
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color.recovery.llm_recovery import _extract_filtered_tokens
+from color_sentiment_extractor.extraction.general.expression.expression_helpers import _inject_expression_modifiers
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 
 # ──────────────────────────────────────────────────────────────

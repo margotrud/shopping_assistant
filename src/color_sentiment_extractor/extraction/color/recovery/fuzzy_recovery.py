@@ -2,11 +2,11 @@
 
 import warnings
 from typing import Optional
-from extraction.color.constants import SEMANTIC_CONFLICTS
-from extraction.color.vocab import known_tones as KNOWN_TONES
-from extraction.general.fuzzy.scoring import rhyming_conflict
-from extraction.general.token.base_recovery import recover_base
-from extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
+from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
+from color_sentiment_extractor.extraction.general.fuzzy.scoring import rhyming_conflict
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
 
 KNOWN_MODIFIERS = load_config("known_modifiers", mode="set")
 

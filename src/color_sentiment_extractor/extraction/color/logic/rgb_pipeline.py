@@ -16,16 +16,16 @@ print("[DEBUG] rgb_pipeline loaded from:", __file__)
 
 from typing import Optional, Tuple, Set
 
-from extraction.color.constants import SEMANTIC_CONFLICTS
-from extraction.color.llm.llm_api_client import query_llm_for_rgb
-from extraction.color.recovery.llm_recovery import simplify_color_description_with_llm, simplify_phrase_if_needed
-from extraction.color.utils.rgb_distance import (
+from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
+from color_sentiment_extractor.extraction.color.llm.llm_api_client import query_llm_for_rgb
+from color_sentiment_extractor.extraction.color.recovery.llm_recovery import simplify_color_description_with_llm, simplify_phrase_if_needed
+from color_sentiment_extractor.extraction.color.utils.rgb_distance import (
     fuzzy_match_rgb_from_known_colors,
     _try_simplified_match,
 )
-from extraction.general.token.base_recovery import recover_base
-from extraction.color.suffix.rules import build_y_variant
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.color.suffix.rules import build_y_variant
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 
 # rgb_pipeline.py

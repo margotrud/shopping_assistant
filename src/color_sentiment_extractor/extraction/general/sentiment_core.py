@@ -26,7 +26,7 @@ from transformers import pipeline
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 # ─────────────────────────────────────────────
 # Logging

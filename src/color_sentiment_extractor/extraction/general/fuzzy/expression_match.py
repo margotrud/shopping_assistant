@@ -11,10 +11,10 @@ duplicate suppression, and embedded conflict resolution.
 from functools import lru_cache
 from fuzzywuzzy import fuzz
 
-from extraction.general.fuzzy.alias_validation import _handle_multiword_alias, is_valid_singleword_alias
-from extraction.general.fuzzy.scoring import fuzzy_token_overlap_count
-from extraction.general.utils.load_config import load_config
-from extraction.general.token.normalize import get_tokens_and_counts
+from color_sentiment_extractor.extraction.general.fuzzy.alias_validation import _handle_multiword_alias, is_valid_singleword_alias
+from color_sentiment_extractor.extraction.general.fuzzy.scoring import fuzzy_token_overlap_count
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.token.normalize import get_tokens_and_counts
 
 # ─────────────────────────────────────────────────────────────
 # 1. Core alias acceptance logic

@@ -23,7 +23,7 @@ import time
 from typing import Optional, Tuple
 import requests
 
-from extraction.color.utils.rgb_distance import _parse_rgb_tuple
+from color_sentiment_extractor.extraction.color.utils.rgb_distance import _parse_rgb_tuple
 
 LLM_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 LLM_MODEL = "mistralai/mistral-7b-instruct"

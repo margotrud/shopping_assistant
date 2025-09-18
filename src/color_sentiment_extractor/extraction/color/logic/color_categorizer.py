@@ -15,8 +15,8 @@ Returns:
 from collections import defaultdict
 from typing import List, Set, Dict, Tuple
 
-from extraction.general.token.base_recovery import recover_base
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 
 # =============================================

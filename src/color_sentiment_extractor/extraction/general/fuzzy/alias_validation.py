@@ -12,14 +12,14 @@ from typing import List
 
 from fuzzywuzzy import fuzz
 
-from extraction.color.vocab import known_tones
-from extraction.color.constants import SEMANTIC_CONFLICTS
-from extraction.general.utils.load_config import load_config
-from extraction.general.fuzzy.scoring import rhyming_conflict, fuzzy_token_overlap_count
-from extraction.general.token.base_recovery import recover_base
-from extraction.general.token.normalize import normalize_token
-from extraction.color.recovery.fuzzy_recovery import is_suffix_root_match
-from extraction.general.fuzzy.fuzzy_core import is_exact_match
+from color_sentiment_extractor.extraction.color.vocab import known_tones
+from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.fuzzy.scoring import rhyming_conflict, fuzzy_token_overlap_count
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.color.recovery.fuzzy_recovery import is_suffix_root_match
+from color_sentiment_extractor.extraction.general.fuzzy.fuzzy_core import is_exact_match
 
 
 known_modifiers = load_config("known_modifiers", mode="set")

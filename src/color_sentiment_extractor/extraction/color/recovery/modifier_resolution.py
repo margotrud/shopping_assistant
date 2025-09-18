@@ -9,10 +9,10 @@ Covers direct match, suffix stripping, compound fallback, and fuzzy logic.
 Designed to support modular, multi-step modifier normalization across domains.
 """
 from typing import Set
-from extraction.color.constants import BLOCKED_TOKENS, RECOVER_BASE_OVERRIDES, SEMANTIC_CONFLICTS
-from extraction.general.token.base_recovery import recover_base
-from extraction.general.token.normalize import singularize, normalize_token
-from extraction.color.vocab import known_tones as KNOWN_TONES
+from color_sentiment_extractor.extraction.color.constants import BLOCKED_TOKENS, RECOVER_BASE_OVERRIDES, SEMANTIC_CONFLICTS
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token.normalize import singularize, normalize_token
+from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
 
 
 
@@ -57,7 +57,7 @@ def is_valid_tone(phrase: str, known_tones, debug=True) -> bool:
 # 2. MODIFIER TOKEN RESOLUTION HELPERS
 # =============================================================================
 
-from extraction.color.vocab import known_tones as KNOWN_TONES  # keep this import at top
+from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES  # keep this import at top
 
 def match_direct_modifier(token: str, known_modifiers: set, known_tones: set | None = None, debug: bool = True) -> str | None:
     """

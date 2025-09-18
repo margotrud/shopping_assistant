@@ -5,7 +5,7 @@
 
 import re
 from collections import Counter
-from extraction.general.vocab.cosmetic_nouns import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.general.vocab.cosmetic_nouns import COSMETIC_NOUNS
 
 INVARIANT_SINGULARS = {"series", "species"}  # restent identiques au singulier
 

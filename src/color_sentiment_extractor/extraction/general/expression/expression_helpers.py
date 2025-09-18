@@ -18,12 +18,12 @@ from typing import Dict, List, Set
 import re
 from functools import lru_cache
 import time
-from extraction.color.constants import EXPRESSION_SUPPRESSION_RULES, SEMANTIC_CONFLICTS
-from extraction.general.utils.load_config import load_config
-from extraction.color.vocab import known_tones, all_webcolor_names
-from extraction.general.token.normalize import normalize_token
-from extraction.general.fuzzy.expression_match import match_expression_aliases
-from extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.color.constants import EXPRESSION_SUPPRESSION_RULES, SEMANTIC_CONFLICTS
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.color.vocab import known_tones, all_webcolor_names
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.fuzzy.expression_match import match_expression_aliases
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 _CONTEXT_MAP = load_config("expression_context_rules", mode="validated_dict")
 _EXPRESSION_MAP_CACHED = load_config("expression_definition", mode="validated_dict")
 _EXPRESSION_MAP_RAW = load_config("expression_definition", mode="raw")

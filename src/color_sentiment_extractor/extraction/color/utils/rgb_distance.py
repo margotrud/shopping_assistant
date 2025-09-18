@@ -18,8 +18,8 @@ import re
 from matplotlib.colors import CSS4_COLORS, XKCD_COLORS
 from webcolors import hex_to_rgb
 
-from extraction.color.vocab import all_webcolor_names
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.color.vocab import all_webcolor_names
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 logger = logging.getLogger(__name__)
 
 # =============================================================================

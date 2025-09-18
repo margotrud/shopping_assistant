@@ -15,20 +15,20 @@ from __future__ import annotations
 
 import spacy
 
-from extraction.color.constants import SEMANTIC_CONFLICTS, COSMETIC_NOUNS
-from extraction.color.recovery.llm_recovery import _attempt_simplify_token
-from extraction.color.recovery.modifier_resolution import (
+from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS, COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color.recovery.llm_recovery import _attempt_simplify_token
+from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
     resolve_modifier_token,
     match_suffix_fallback,
     is_blocked_modifier_tone_pair,
     is_known_tone,
 )
-from extraction.color.token.split import split_tokens_to_parts, split_glued_tokens
-from extraction.color.suffix.rules import build_y_variant
+from color_sentiment_extractor.extraction.color.token.split import split_tokens_to_parts, split_glued_tokens
+from color_sentiment_extractor.extraction.color.suffix.rules import build_y_variant
 
-from extraction.general.token.base_recovery import recover_base
-from extraction.general.token.normalize import singularize, normalize_token
-from extraction.general.token.suffix.recovery import build_augmented_suffix_vocab
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token.normalize import singularize, normalize_token
+from color_sentiment_extractor.extraction.general.token.suffix.recovery import build_augmented_suffix_vocab
 
 nlp = spacy.load("en_core_web_sm")
 

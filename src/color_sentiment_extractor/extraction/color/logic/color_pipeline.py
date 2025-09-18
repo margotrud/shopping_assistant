@@ -21,19 +21,19 @@ from typing import Set, Tuple, Optional, List, Dict
 import spacy
 
 from src.color_sentiment_extractor.extraction.color.logic.rgb_pipeline import process_color_phrase, _sanitize_simplified
-from extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 
 nlp = spacy.load("en_core_web_sm")
 
-from extraction.color.extraction.compound import extract_compound_phrases
-from extraction.color.extraction.standalone import (
+from color_sentiment_extractor.extraction.color.extraction.compound import extract_compound_phrases
+from color_sentiment_extractor.extraction.color.extraction.standalone import (
     extract_standalone_phrases,
     extract_lone_tones,
 )
 
-from extraction.color.vocab import known_tones
-from extraction.color.constants import COSMETIC_NOUNS
-from extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.color.vocab import known_tones
+from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
 expression_map = load_config("expression_definition", mode="validated_dict")
 KNOWN_TONES = known_tones
 import re
@@ -78,7 +78,7 @@ def extract_all_descriptive_color_phrases(
 
     return list(set(map(str.lower, phrases)))
 
-from extraction.color.constants import BLOCKED_TOKENS
+from color_sentiment_extractor.extraction.color.constants import BLOCKED_TOKENS
 from fuzzywuzzy import fuzz
 
 def extract_phrases_from_segment(
@@ -288,9 +288,9 @@ def aggregate_color_phrase_results(
     Does: Aggregates simplified tone names and RGB values from color phrases in all segments.
     Returns: (set of simplified tone names, list of all simplified phrases, RGB map for each phrase).
     """
-    from extraction.general.utils.load_config import load_config
-    from extraction.color.vocab import known_tones as KNOWN_TONES
-    from extraction.general.token.base_recovery import recover_base
+    from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+    from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 
     expression_map = load_config("expression_definition")
 

@@ -1,7 +1,7 @@
 from typing import Optional, Set
-from extraction.color.vocab import all_webcolor_names, known_tones
-from extraction.color.constants import RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST
-from extraction.color.suffix.rules import build_y_variant, build_ey_variant, is_cvc_ending
+from color_sentiment_extractor.extraction.color.vocab import all_webcolor_names, known_tones
+from color_sentiment_extractor.extraction.color.constants import RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST
+from color_sentiment_extractor.extraction.color.suffix.rules import build_y_variant, build_ey_variant, is_cvc_ending
 def build_augmented_suffix_vocab(
     known_tokens: set[str],
     known_modifiers: set[str],
@@ -13,7 +13,7 @@ def build_augmented_suffix_vocab(
     - Generates valid '-y', '-ey', and '-ed' variants including CVC doubling.
     Returns: Set of valid base and suffixed tokens.
     """
-    from extraction.general.token.base_recovery import recover_base
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
     raw_inputs = known_tokens | known_modifiers
     recovery_vocab = known_modifiers | known_tokens | all_webcolor_names
     augmented = set()
@@ -135,7 +135,7 @@ def is_suffix_variant(
     debug: bool = False,
     allow_fuzzy: bool = False
 ) -> bool:
-    from extraction.general.token.base_recovery import recover_base
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
     """
     Does: Checks whether a token is a '-y' or '-ed' suffix variant of a known modifier or tone.
     Returns: True if the base is known and not blocked, else False.
@@ -345,7 +345,7 @@ def recover_ish(token, known_modifiers, known_tones, debug=False):
         if debug: print(f"[✅ ISH +E] '{token}' → '{extended_e}'")
         return extended_e
 
-    from extraction.general.token.base_recovery import recover_base
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
     recovered = recover_base(
         base,
         known_modifiers=known_modifiers,

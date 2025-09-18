@@ -1,6 +1,6 @@
 from typing import Set
 
-from extraction.color.constants import Y_SUFFIX_ALLOWLIST, Y_SUFFIX_OVERRIDE_FORMS, RECOVER_BASE_OVERRIDES
+from color_sentiment_extractor.extraction.color.constants import Y_SUFFIX_ALLOWLIST, Y_SUFFIX_OVERRIDE_FORMS, RECOVER_BASE_OVERRIDES
 
 
 def is_y_suffix_allowed(base: str) -> bool:

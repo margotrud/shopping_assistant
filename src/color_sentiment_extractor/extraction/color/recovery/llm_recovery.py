@@ -1,9 +1,9 @@
 # extraction/color/recovery/llm_recovery.py
 import re
-from extraction.color.constants import COSMETIC_NOUNS
-from extraction.color.recovery.modifier_resolution import resolve_modifier_token
-from extraction.general.token.normalize import normalize_token
-from extraction.general.token.base_recovery import recover_base  # ← import top-level
+from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import resolve_modifier_token
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base  # ← import top-level
 
 # 🔒 Teintes interdites en autonome (on ne veut pas les promouvoir en "tone" seules)
 AUTONOMOUS_TONE_BAN = {"dust", "glow"}

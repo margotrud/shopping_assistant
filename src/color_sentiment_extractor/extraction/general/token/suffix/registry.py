@@ -1,4 +1,4 @@
-from extraction.general.token.suffix.recovery import (recover_y, recover_ed,
+from color_sentiment_extractor.extraction.general.token.suffix.recovery import (recover_y, recover_ed,
                                                       recover_ee_to_y,
                                                       recover_ing,
                                                       recover_ish,

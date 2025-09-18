@@ -7,7 +7,7 @@ Covers negation (e.g. 'no shimmer') and substring embedding.
 """
 
 
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 # ─────────────────────────────────────────────────────────────
 # 1. Negation conflict

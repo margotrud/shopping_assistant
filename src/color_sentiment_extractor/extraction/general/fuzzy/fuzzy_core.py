@@ -10,9 +10,9 @@ import re
 from typing import Iterable, Optional, Set
 
 from fuzzywuzzy import fuzz
-from extraction.general.fuzzy.scoring import fuzzy_token_score
-from extraction.general.fuzzy.conflict_rules import is_negation_conflict
-from extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.fuzzy.scoring import fuzzy_token_score
+from color_sentiment_extractor.extraction.general.fuzzy.conflict_rules import is_negation_conflict
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 # ─────────────────────────────────────────────────────────────
 # 1. FUZZY SIMILARITY MATCHING
@@ -24,7 +24,7 @@ def fuzzy_token_match(a: str, b: str) -> float:
     """
     # lazy import to avoid circular on module import
     try:
-        from extraction.general.token.base_recovery import recover_base as _recover_base
+        from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base as _recover_base
     except Exception:
         _recover_base = None
 
@@ -152,7 +152,7 @@ def fuzzy_match_token_safe(
     """
     # lazy import here too
     try:
-        from extraction.general.token.base_recovery import recover_base as _recover_base
+        from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base as _recover_base
     except Exception:
         _recover_base = None
 

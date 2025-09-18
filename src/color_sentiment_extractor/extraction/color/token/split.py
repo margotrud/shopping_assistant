@@ -7,20 +7,20 @@ from functools import lru_cache
 from typing import List, Optional, Set
 import time as _time  # ✅ alias module time pour éviter le shadowing
 
-from extraction.color.constants import BLOCKED_TOKENS
-from extraction.general.token.base_recovery import (
+from color_sentiment_extractor.extraction.color.constants import BLOCKED_TOKENS
+from color_sentiment_extractor.extraction.general.token.base_recovery import (
     recover_base,
     _recover_base_cached_with_params,
 )
-from extraction.general.token.normalize import normalize_token
-from extraction.general.token.split.split_core import (
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token.split.split_core import (
     fallback_split_on_longest_substring,
 )
-from extraction.general.token.suffix.recovery import (
+from color_sentiment_extractor.extraction.general.token.suffix.recovery import (
     build_augmented_suffix_vocab,
     is_suffix_variant,
 )
-from extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
 
 # Vocab global des modificateurs (config)
 known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
