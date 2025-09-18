@@ -20,7 +20,7 @@ from typing import Set, Tuple, Optional, List, Dict
 
 import spacy
 
-from extraction.color.logic.rgb_pipeline import process_color_phrase, _sanitize_simplified
+from src.color_sentiment_extractor.extraction.color.logic.rgb_pipeline import process_color_phrase, _sanitize_simplified
 from extraction.general.token.base_recovery import recover_base
 
 nlp = spacy.load("en_core_web_sm")

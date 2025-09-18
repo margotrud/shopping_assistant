@@ -17,7 +17,7 @@ Key Outputs:
 """
 from typing import List, Set, Tuple, Dict, Optional, Union
 
-from extraction.color.logic.color_pipeline import aggregate_color_phrase_results
+from src.color_sentiment_extractor.extraction.color.logic.color_pipeline import aggregate_color_phrase_results
 from extraction.color.utils.rgb_distance import choose_representative_rgb
 from extraction.color.logic.color_categorizer import format_tone_modifier_mappings
 

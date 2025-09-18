@@ -18,13 +18,13 @@ known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
 known_tones: Set[str] = set(_known_tones or [])
 
 # ── Pipelines / LLM client ───────────────────────────────────────────────────
-from extraction.color.logic.color_pipeline import aggregate_color_phrase_results
+from src.color_sentiment_extractor.extraction.color.logic.color_pipeline import aggregate_color_phrase_results
 from extraction.color.llm.llm_api_client import get_llm_client
 from extraction.general.token.base_recovery import recover_base
 
 # ── RGB utils ────────────────────────────────────────────────────────────────
 from extraction.color.utils.rgb_distance import _try_simplified_match, rgb_distance
-from extraction.color.logic.rgb_pipeline import resolve_rgb_with_llm
+from src.color_sentiment_extractor.extraction.color.logic.rgb_pipeline import resolve_rgb_with_llm
 
 # ── Sentiment ────────────────────────────────────────────────────────────────
 # NOTE: adapte ce chemin si ton sentiment_core est ailleurs (ex: extraction.sentiment.sentiment_core)

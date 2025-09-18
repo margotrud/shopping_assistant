@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from Chatbot.extraction.orchestrator import analyze_colors_with_sentiment
+from extraction.orchestrator import analyze_colors_with_sentiment
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
