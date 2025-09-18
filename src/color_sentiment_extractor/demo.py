@@ -1,18 +1,21 @@
-# demo.py
-import sys, json
-from pathlib import Path
+# src/color_sentiment_extractor/demo.py
+import json
+import argparse
 
-ROOT = Path(__file__).resolve().parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+def main():
+    # 👉 adapte l'import si besoin selon l’emplacement réel
+    from .extraction.orchestrator import analyze_colors_with_sentiment
 
-from extraction.orchestrator import analyze_colors_with_sentiment
+    parser = argparse.ArgumentParser(
+        prog="cse-demo",
+        description="Analyze text: extract color mentions, split by sentiment, resolve RGB."
+    )
+    parser.add_argument("text", nargs="*", help='Text to analyze (e.g. I love bright red but I hate purple)')
+    parser.add_argument("--debug", action="store_true", help="Verbose debug logs")
+    parser.add_argument("--top-k", type=int, default=10, dest="top_k", help="Max color phrases to return")
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print('Usage: python demo.py "I love bright red but I hate purple" [--debug]')
-        raise SystemExit(2)
-    debug = "--debug" in sys.argv
-    text = " ".join(a for a in sys.argv[1:] if a != "--debug")
-    out = analyze_colors_with_sentiment(text, top_k=10, debug=debug)
+    args = parser.parse_args()
+    text = " ".join(args.text) or "I love bright red but I hate purple"
+
+    out = analyze_colors_with_sentiment(text, top_k=args.top_k, debug=args.debug)
     print(json.dumps(out, indent=2, ensure_ascii=False))

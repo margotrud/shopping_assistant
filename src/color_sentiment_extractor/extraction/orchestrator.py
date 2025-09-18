@@ -1,34 +1,41 @@
-# Chatbot/extraction/orchestrator.py
-from __future__ import annotations
-
-import os
-import sys
-from typing import Dict, List, Set, Tuple, Optional
-
 # ── Boot / ENV ────────────────────────────────────────────────────────────────
+import os, sys
 print("[PYTHON]", sys.executable)
 from dotenv import load_dotenv
 load_dotenv()
 print("API Key found:", bool(os.getenv("OPENROUTER_API_KEY")))
 
 # ── Vocab & Config ───────────────────────────────────────────────────────────
-from extraction.color.vocab import all_webcolor_names, known_tones as _known_tones
-from extraction.general.utils.load_config import load_config
+from src.color_sentiment_extractor.extraction.color.vocab import (
+    all_webcolor_names,
+    known_tones as _known_tones,
+)
+from src.color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from typing import Set, Tuple, Optional, List, Dict
+
 known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
 known_tones: Set[str] = set(_known_tones or [])
 
 # ── Pipelines / LLM client ───────────────────────────────────────────────────
-from src.color_sentiment_extractor.extraction.color.logic.color_pipeline import aggregate_color_phrase_results
-from extraction.color.llm.llm_api_client import get_llm_client
-from extraction.general.token.base_recovery import recover_base
+from src.color_sentiment_extractor.extraction.color.logic.color_pipeline import (
+    aggregate_color_phrase_results,
+)
+from src.color_sentiment_extractor.extraction.color.llm.llm_api_client import get_llm_client
+from src.color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 
 # ── RGB utils ────────────────────────────────────────────────────────────────
-from extraction.color.utils.rgb_distance import _try_simplified_match, rgb_distance
-from src.color_sentiment_extractor.extraction.color.logic.rgb_pipeline import resolve_rgb_with_llm
+from src.color_sentiment_extractor.extraction.color.utils.rgb_distance import (
+    _try_simplified_match,
+    rgb_distance,
+)
+from src.color_sentiment_extractor.extraction.color.logic.rgb_pipeline import (
+    resolve_rgb_with_llm,
+)
 
 # ── Sentiment ────────────────────────────────────────────────────────────────
-# NOTE: adapte ce chemin si ton sentiment_core est ailleurs (ex: extraction.sentiment.sentiment_core)
-from extraction.general.sentiment_core import analyze_sentence_sentiment
+from src.color_sentiment_extractor.extraction.general.sentiment_core import (
+    analyze_sentence_sentiment,
+)
 
 
 # =============================================================================

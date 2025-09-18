@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "color-sentiment-extractor"
+version = "0.1.0"
+description = "Extract colors from text, split by sentiment, and map them to RGB."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Margot Rudnianski" }]
+dependencies = [
+  "spacy>=3.7,<4",
+  "numpy",
+  "tqdm"
+]
+
+[project.urls]
+Homepage = "https://github.com/margotrud/shopping_assistant"
+
+[project.scripts]
+cse-demo = "color_sentiment_extractor.demo:main"
