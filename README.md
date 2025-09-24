@@ -29,17 +29,17 @@ Given text like _“I love bright red but I hate purple”_, this project:
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
-# 1) Install deps
-pip install -r requirements.txt
+# 1) Install in editable mode
+pip install -e .
 
 # 2) Get spaCy model
 python -m spacy download en_core_web_sm
 
 # 3) Run demo
-python demo.py "I love bright red but I hate purple"
+cse-demo "I love bright red but I hate purple"
 
 
 
