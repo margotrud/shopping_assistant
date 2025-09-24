@@ -22,14 +22,17 @@ from color_sentiment_extractor.extraction.general.token.suffix.recovery import (
 )
 from color_sentiment_extractor.extraction.general.utils.load_config import load_config
 
-# Vocab global des modificateurs (config)
-known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
+
+@lru_cache(maxsize=1)
+def _get_known_modifiers() -> Set[str]:
+    """Does: Load known modifiers from config once, cached."""
+    return frozenset(load_config("known_modifiers", mode="set"))
 
 
 def split_glued_tokens(
     token: str,
     known_tokens: Set[str],
-    known_modifiers: Set[str],
+    known_modifiers: Optional[Set[str]] = None,
     debug: bool = False,
     vocab: Optional[Set[str]] = None,
     *,
@@ -38,34 +41,16 @@ def split_glued_tokens(
     time_budget_sec: float = 0.050,  # ~50ms par token : safe & snappy
 ) -> List[str]:
     """
-    Découpe un token 'collé' en morceaux connus (ex: 'earthyrose' → ['earthy','rose']).
-
-    Stratégie:
-      1) Normalisation du token.
-      2) Split récursif avec cache + vocabulaire suffix-aware.
-      3) Raccourci si (gauche, droite) valides directement.
-      4) Fallback sur 'longest substring match'.
-      5) Garde-fous: longueur minimale, bornes de split, budget temps.
-
-    Args:
-        token: le token d'entrée.
-        known_tokens: ensemble des tons connus (CSS/XKCD/etc).
-        known_modifiers: ensemble des modificateurs connus (bright, deep, ...).
-        debug: logs optionnels.
-        vocab: vocabulaire étendu préconstruit (sinon construit à la volée).
-        min_part_len: longueur min d'un morceau (par défaut 3).
-        max_first_cut: borne haute pour l'index de première coupe.
-        time_budget_sec: budget temps max pour l'algo récursif.
-
-    Returns:
-        Liste de parties valides, ou [] si aucun split fiable.
+    Does: Recursively split glued token into known parts (suffix-aware) with time budget and fallback.
+    Returns: List of valid parts or [] if none.
     """
     t0 = _time.time()
+    if known_modifiers is None:
+        known_modifiers = _get_known_modifiers()
 
     if not token or not isinstance(token, str):
         return []
 
-    # Garde longueur: tue rapidement les tokens trop courts
     if len(token) <= 2:
         if debug:
             print(f"[split] skip short token: {token!r}")
@@ -79,7 +64,6 @@ def split_glued_tokens(
 
     token = tok_norm
 
-    # Vocab étendu (tones + modifiers + variantes suffix)
     if vocab is None:
         vocab = build_augmented_suffix_vocab(known_tokens, known_modifiers)
 
@@ -97,20 +81,15 @@ def split_glued_tokens(
         )
 
     def _cut_range(s: str) -> range:
-        # on ne découpe pas avant min_part_len, ni après max_first_cut
         return range(min_part_len, min(len(s), max_first_cut))
 
     @lru_cache(maxsize=2048)
     def recursive_split_cached(tok: str) -> Optional[List[str]]:
-        # respect du budget temps
         if (_time.time() - t0) > time_budget_sec:
             return None
-
-        # 1) Le token entier est-il valide ?
         if is_valid_cached(tok):
             return [tok]
 
-        # 2) Raccourci: 2 morceaux valides d'un coup
         for i in _cut_range(tok):
             left, right = tok[:i], tok[i:]
             if not left.isalpha() or len(left) < min_part_len:
@@ -118,7 +97,6 @@ def split_glued_tokens(
             if is_valid_cached(left) and is_valid_cached(right):
                 return [left, right]
 
-        # 3) Recherche récursive: choisir la meilleure décomposition
         best_split: Optional[List[str]] = None
         for i in _cut_range(tok):
             left, right = tok[:i], tok[i:]
@@ -139,9 +117,7 @@ def split_glued_tokens(
             print(f"[split] recursive OK {parts} in {dt:.3f}s for '{token}'")
         return parts
 
-    # 4) Fallback: longest substring match
     result = fallback_split_on_longest_substring(token, vocab, debug=False) or []
-    # On valide seulement si au moins un morceau existe réellement dans les vocabs de base
     if any(t in known_modifiers or t in known_tokens for t in result):
         if debug:
             dt = _time.time() - t0
@@ -158,46 +134,45 @@ def split_glued_tokens(
 def split_tokens_to_parts(
     token: str,
     known_tokens: Set[str],
-    debug: bool = True,
+    known_modifiers: Optional[Set[str]] = None,
+    debug: bool = False,
     *,
     min_part_len: int = 3,
-    time_budget_sec: float = 0.050,  # même philosophie
+    time_budget_sec: float = 0.050,
 ) -> Optional[List[str]]:
     """
-    Essaye de couper (modifier + tone) pour un token collé (ex: 'creamyivory').
-
-    Stratégie:
-      - Essaie toutes les coupes (i dans [min_part_len, len-1]).
-      - Score via vocabs + recover_base (sans fuzzy pour rester strict).
-      - Rejette récupérations trop faibles sur très petits segments.
-      - Respecte un budget temps (~50ms).
-
-    Returns:
-        [left, right] si trouvé, sinon None.
+    Does: Try a 2-part split (modifier+tone) via scoring + base recovery (no fuzzy) under time budget.
+    Returns: [left, right] if found, else None.
     """
     t0 = _time.time()
+    if known_modifiers is None:
+        known_modifiers = _get_known_modifiers()
 
     if not token or len(token) <= 2:
         if debug:
             print(f"[split2] skip short token: {token!r}")
         return None
 
-    token = token.lower().strip()
+    token = normalize_token(token, keep_hyphens=True)
     if not token or len(token) <= 2:
         if debug:
             print(f"[split2] skip after normalize: {token!r}")
         return None
-    # ✅ Guard supplémentaire
+
     if token in known_tokens:
-        if debug: print(f"[split2] token already known: {token!r}")
+        if debug:
+            print(f"[split2] token already known: {token!r}")
         return None
+
     best_split: Optional[List[str]] = None
     best_score = -1
 
     # Cas simple: 'xxx-yyy'
     if "-" in token:
         left, right = token.split("-", 1)
-        if left in known_tokens and right in known_tokens:
+        l_ok = left in known_tokens or left in known_modifiers
+        r_ok = right in known_tokens or right in known_modifiers
+        if l_ok and r_ok:
             if debug:
                 print(f"[🚀 HYPHEN SPLIT MATCH] '{left}' + '{right}'")
             return [left, right]
@@ -212,7 +187,6 @@ def split_tokens_to_parts(
             break
 
         left, right = token[:i], token[i:]
-
         if debug:
             print(f"\n[🔍 TRY SPLIT2] '{left}' + '{right}'")
 
@@ -226,7 +200,7 @@ def split_tokens_to_parts(
         right_final: Optional[str] = None
 
         # ── LEFT ──
-        if left in known_tokens:
+        if left in known_tokens or left in known_modifiers:
             left_final = left
             score += 3
             if debug:
@@ -239,7 +213,6 @@ def split_tokens_to_parts(
                 km=frozenset(known_modifiers),
                 kt=frozenset(known_tokens),
             )
-            # nettoyage chiffres
             if not left_rec and any(ch.isdigit() for ch in left):
                 cleaned = re.sub(r"\d+", "", left)
                 if cleaned and cleaned != left:
@@ -253,7 +226,6 @@ def split_tokens_to_parts(
                     if debug:
                         print(f"[🧹 CLEANED LEFT] '{left}' → '{cleaned}' → '{left_rec}'")
 
-            # garde qualité sur très courts segments
             if left_rec and len(left) < 4 and left_rec != left and left_rec not in known_tokens:
                 if debug:
                     print(f"[⛔ RECOVERY TOO WEAK] '{left}' → '{left_rec}' — rejecting")
@@ -266,7 +238,7 @@ def split_tokens_to_parts(
                     print(f"[🔁 LEFT RECOVERED] '{left}' → '{left_final}'")
 
         # ── RIGHT ──
-        if right in known_tokens:
+        if right in known_tokens or right in known_modifiers:
             right_final = right
             score += 3
             if debug:
@@ -277,10 +249,9 @@ def split_tokens_to_parts(
                 known_modifiers=known_modifiers,
                 known_tones=known_tokens,
                 debug=False,
-                fuzzy_fallback=False,  # strict
+                fuzzy_fallback=False,
                 fuzzy_threshold=88,
             )
-            # nettoyage chiffres
             if not right_rec and any(ch.isdigit() for ch in right):
                 cleaned = re.sub(r"\d+", "", right)
                 if cleaned and cleaned != right:
@@ -295,7 +266,6 @@ def split_tokens_to_parts(
                     if debug:
                         print(f"[🧹 CLEANED RIGHT] '{right}' → '{cleaned}' → '{right_rec}'")
 
-            # garde qualité
             if right_rec and len(right) < 4 and right_rec != right:
                 if debug:
                     print(f"[⛔ RECOVERY TOO WEAK] '{right}' → '{right_rec}' — rejecting")

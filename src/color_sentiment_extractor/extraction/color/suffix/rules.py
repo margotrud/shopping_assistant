@@ -1,6 +1,10 @@
 from typing import Set
 
-from color_sentiment_extractor.extraction.color.constants import Y_SUFFIX_ALLOWLIST, Y_SUFFIX_OVERRIDE_FORMS, RECOVER_BASE_OVERRIDES
+from color_sentiment_extractor.extraction.color.constants import (
+    Y_SUFFIX_ALLOWLIST,
+    Y_SUFFIX_OVERRIDE_FORMS,
+    RECOVER_BASE_OVERRIDES,
+)
 
 
 def is_y_suffix_allowed(base: str) -> bool:
@@ -18,9 +22,16 @@ def is_y_suffix_allowed(base: str) -> bool:
         return False
     if base[-1] in "aeiou":
         return False
-    if base.endswith(("sh", "ch", "ge", "se", "ze", "ss", "m", "n", "r", "l", "t", "d", "k", "w")):
+
+    ALLOW_ENDS = (
+        "sh", "ch", "ss", "m", "n", "r", "l",
+        "t", "d", "k", "p", "b", "f", "v",
+        "s", "z", "c", "g", "h", "j"
+    )
+    if base.endswith(ALLOW_ENDS):
         return True
     return False
+
 
 def is_cvc_ending(base: str) -> bool:
     """
@@ -35,12 +46,13 @@ def is_cvc_ending(base: str) -> bool:
     c1, v, c2 = base[-3], base[-2], base[-1]
 
     return (
-        c1.isalpha() and c2.isalpha() and
-        c1 not in "aeiou" and
-        v in "aeiou" and
-        c2 not in "aeiou" and
-        c2 not in "wxy"
+        c1.isalpha() and c2.isalpha()
+        and c1 not in "aeiou"
+        and v in "aeiou"
+        and c2 not in "aeiou"
+        and c2 not in "wxy"
     )
+
 
 def build_y_variant(base: str, debug: bool = False) -> str | None:
     """
@@ -61,37 +73,39 @@ def build_y_variant(base: str, debug: bool = False) -> str | None:
         result = base + "y"
         label = "RULED -y"
     else:
-        if debug: print(f"⛔ [NO -y] Not allowed for '{base}'")
+        if debug:
+            print(f"⛔ [NO -y] Not allowed for '{base}'")
         return None
 
-    if debug: print(f"✅ [{label}] '{base}' → '{result}'")
+    if debug:
+        print(f"✅ [{label}] '{base}' → '{result}'")
     return result
+
 
 def build_ey_variant(base: str, raw: str, debug: bool = False) -> str | None:
     """
     Does: Builds a valid '-ey' variant from a base token.
     - Accepts if base or raw is in allowlist.
-    - Also allows base if it ends in a non-vowel consonant (excluding 'e' or 'y').
+    - Allows for sibilant endings (ge, ce, ze, se) by dropping final 'e'.
     Returns: Suffixed token or None if not allowed.
     """
-    result = None
+
+    def _ey(stem: str) -> str:
+        return (stem[:-1] if stem.endswith("e") else stem) + "ey"
 
     if raw in Y_SUFFIX_ALLOWLIST or base in Y_SUFFIX_ALLOWLIST:
-        result = base + "ey"
-        label = "ALLOWLIST -ey"
-    elif (
-        len(base) > 2 and
-        not base.endswith(("e", "y")) and
-        base[-1] not in "aeiou"
-    ):
-        result = base + "ey"
-        label = "RULED -ey"
+        result, label = _ey(base), "ALLOWLIST -ey"
+    elif base.endswith(("ge", "ce", "ze", "se")) and len(base) > 2:
+        result, label = _ey(base), "RULED -ey (sibilant)"
     else:
-        if debug: print(f"⛔ [NO -ey] Not allowed for '{base}'")
+        if debug:
+            print(f"⛔ [NO -ey] Not allowed for '{base}'")
         return None
 
-    if debug: print(f"✅ [{label}] '{base}' → '{result}'")
+    if debug:
+        print(f"✅ [{label}] '{base}' → '{result}'")
     return result
+
 
 def _default_suffix_strip(token: str) -> str:
     """
@@ -100,26 +114,25 @@ def _default_suffix_strip(token: str) -> str:
     """
     return token[:-1] if token.endswith("y") else token
 
+
+STRIPPED_OVERRIDE_MAP = {
+    (k[:-1] if k.endswith("y") else k[:-2] if k.endswith("ed") else k): v
+    for k, v in RECOVER_BASE_OVERRIDES.items()
+}
+
+
 def _apply_reverse_override(base: str, token: str, debug: bool = False) -> str:
     """
     Does: Applies reverse override by matching a stripped override token to the given base.
     - Recognizes 'y' and 'ed' suffix forms in override_token.
     - Returns override_base if match found, else returns original base.
     """
-    for override_token, override_base in RECOVER_BASE_OVERRIDES.items():
-        if override_token.endswith("y"):
-            stripped_override = override_token[:-1]
-        elif override_token.endswith("ed"):
-            stripped_override = override_token[:-2]
-        else:
-            stripped_override = override_token
-
-        if stripped_override == base:
-            if debug:
-                print(f"📌 [REVERSE OVERRIDE] '{token}' → '{override_base}' via '{override_token}'")
-            return override_base
-
+    if base in STRIPPED_OVERRIDE_MAP:
+        if debug:
+            print(f"📌 [REVERSE OVERRIDE] '{token}' → '{STRIPPED_OVERRIDE_MAP[base]}'")
+        return STRIPPED_OVERRIDE_MAP[base]
     return base
+
 
 def _collapse_repeated_consonant(
     base: str,
@@ -134,7 +147,8 @@ def _collapse_repeated_consonant(
     if len(base) >= 3 and base[-1] == base[-2]:
         collapsed_base = base[:-1]
         if collapsed_base in known_modifiers or collapsed_base in known_tones:
-            if debug: print(f"📌 [COLLAPSE] Repeated final consonant → '{collapsed_base}'")
+            if debug:
+                print(f"📌 [COLLAPSE] Repeated final consonant → '{collapsed_base}'")
             return collapsed_base
 
     return base
