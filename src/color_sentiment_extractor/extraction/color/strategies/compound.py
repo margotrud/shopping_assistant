@@ -36,7 +36,7 @@ def get_nlp():
     return spacy.load("en_core_web_sm")
 
 # ── Domain imports ───────────────────────────────────────────────────────────
-from color_sentiment_extractor.extraction.color.constants import (
+from color_sentiment_extractor.extraction.color import (
     SEMANTIC_CONFLICTS,
     COSMETIC_NOUNS,
 )
@@ -158,8 +158,7 @@ def attempt_mod_tone_pair(
             candidate,
             known_modifiers,
             known_tones=known_tones,
-            allow_fuzzy=False,
-            is_tone=is_tone_role,
+            fuzzy=False,      # ← was allow_fuzzy=False
             debug=debug,
         )
         if debug and result:
@@ -364,11 +363,11 @@ def extract_from_split(
             first, second = parts
             first_is_tone = is_known_tone(first, known_tones, all_webcolor_names)
             first_canon_mod = resolve_modifier_token(
-                first, known_modifiers, known_tones, is_tone=False, debug=debug
+                first, known_modifiers, known_tones, debug=debug
             )
             second_is_tone = is_known_tone(second, known_tones, all_webcolor_names)
             second_canon_mod = resolve_modifier_token(
-                second, known_modifiers, known_tones, is_tone=False, debug=debug
+                second, known_modifiers, known_tones, debug=debug
             )
 
             if debug:
@@ -403,13 +402,13 @@ def extract_from_split(
             first, second, third = parts
 
             first_canon_mod = resolve_modifier_token(
-                first, known_modifiers, known_tones, is_tone=False, debug=debug
+                first, known_modifiers, known_tones, debug=debug
             )
             second_canon_mod = resolve_modifier_token(
-                second, known_modifiers, known_tones, is_tone=False, debug=debug
+                second, known_modifiers, known_tones, debug=debug
             )
             third_canon_mod = resolve_modifier_token(
-                third, known_modifiers, known_tones, is_tone=False, debug=debug
+                third, known_modifiers, known_tones, debug=debug
             )
 
             first_is_tone = is_known_tone(first, known_tones, all_webcolor_names)
@@ -544,7 +543,7 @@ def extract_from_glued(
         # --- 2-part ---
         if len(parts) == 2:
             a, b = parts
-            mod_canon = resolve_modifier_token(a, known_modifiers, known_tones, is_tone=False, debug=debug)
+            mod_canon = resolve_modifier_token(a, known_modifiers, known_tones, debug=debug)
             is_tone_b = is_known_tone(b, known_tones, all_webcolor_names)
 
             allow_tone_pair = False  # keep strict (avoid "red purple")
@@ -571,9 +570,9 @@ def extract_from_glued(
         elif len(parts) == 3:
             a, b, c = parts
 
-            mod_a = resolve_modifier_token(a, known_modifiers, known_tones, is_tone=False, debug=debug)
-            mod_b = resolve_modifier_token(b, known_modifiers, known_tones, is_tone=False, debug=debug)
-            mod_c = resolve_modifier_token(c, known_modifiers, known_tones, is_tone=False, debug=debug)
+            mod_a = resolve_modifier_token(a, known_modifiers, known_tones, debug=debug)
+            mod_b = resolve_modifier_token(b, known_modifiers, known_tones, debug=debug)
+            mod_c = resolve_modifier_token(c, known_modifiers, known_tones, debug=debug)
 
             tone_a = is_known_tone(a, known_tones, all_webcolor_names)
             tone_b = is_known_tone(b, known_tones, all_webcolor_names)
@@ -640,7 +639,7 @@ def extract_from_adjacent(
             continue
 
         mod_canon = resolve_modifier_token(
-            raw_mod, known_modifiers, known_tones, is_tone=False, debug=debug
+            raw_mod, known_modifiers, known_tones, debug=debug
         )
         tone = raw_tone if raw_tone in known_tones else None
 
@@ -669,7 +668,7 @@ def extract_from_adjacent(
                 continue
 
             mod2_canon = resolve_modifier_token(
-                combined_mod_raw, known_modifiers, known_tones, is_tone=False, debug=debug
+                combined_mod_raw, known_modifiers, known_tones, debug=debug
             )
             tone2 = raw_tone2 if raw_tone2 in known_tones else None
 
@@ -754,8 +753,7 @@ def extract_compound_phrases(
             left,
             known_modifiers=known_modifiers,
             known_tones=known_tones,
-            allow_fuzzy=True,
-            is_tone=False,
+            fuzzy=True,   # ← was allow_fuzzy=True
             debug=debug,
         )
 

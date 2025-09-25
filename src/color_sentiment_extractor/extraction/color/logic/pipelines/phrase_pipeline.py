@@ -31,10 +31,12 @@ try:
 except Exception:  # pragma: no cover
     from fuzzywuzzy import fuzz  # type: ignore
 
-from color_sentiment_extractor.extraction.color.constants import (
+# ✅ Simplified thanks to color/__init__.py re-exports
+from color_sentiment_extractor.extraction.color import (
     BLOCKED_TOKENS,
     COSMETIC_NOUNS,
 )
+
 from color_sentiment_extractor.extraction.color.logic.pipelines.rgb_pipeline import (
     process_color_phrase,
 )

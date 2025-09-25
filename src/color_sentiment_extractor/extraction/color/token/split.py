@@ -8,7 +8,9 @@ import time as _time  # alias pour éviter le shadowing
 from functools import lru_cache
 from typing import FrozenSet, List, Optional, Set
 
-from color_sentiment_extractor.extraction.color.constants import BLOCKED_TOKENS
+# ⬇️ constants via color package
+from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS
+
 from color_sentiment_extractor.extraction.general.token.base_recovery import (
     _recover_base_cached_with_params,
     recover_base,

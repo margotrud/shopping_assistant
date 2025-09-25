@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Set
 
-from color_sentiment_extractor.extraction.color.constants import (
+from color_sentiment_extractor.extraction.color import (
     BLOCKED_TOKENS,
     RECOVER_BASE_OVERRIDES,
 )
@@ -31,9 +31,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------
 # Helpers to lazily get vocabs (avoid strong dependency on color.vocab)
 # ---------------------------------------------------------------------
+# APRÈS
+from color_sentiment_extractor.extraction.color import get_known_tones
+
 def _get_known_tones() -> Set[str]:
+    # léger et stable : passe par l'API du package color
     try:
-        return set(load_config("known_tones", mode="set"))
+        return set(get_known_tones())
     except Exception:
         return set()
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Optional, Set
 
-from color_sentiment_extractor.extraction.color.constants import (
+from color_sentiment_extractor.extraction.color import (
     Y_SUFFIX_ALLOWLIST,
     Y_SUFFIX_OVERRIDE_FORMS,
     RECOVER_BASE_OVERRIDES,

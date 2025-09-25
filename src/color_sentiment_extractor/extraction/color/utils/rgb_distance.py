@@ -9,15 +9,31 @@ and fallback name matching based on perceptual closeness.
 from __future__ import annotations
 import logging
 import re
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Optional, Tuple, Callable, Iterable
 
-from color_sentiment_extractor.extraction.color.vocab import all_webcolor_names
+# ✔ pull webcolor names via color package (re-exported by color/__init__.py)
+from color_sentiment_extractor.extraction.color import all_webcolor_names
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 logger = logging.getLogger(__name__)
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 RGB = Tuple[int, int, int]
+
+# Helper: normalize access to webcolor name list (supports var or callable)
+def _get_all_webcolor_names() -> List[str]:
+    try:
+        # If it's a function (callable), call it.
+        if callable(all_webcolor_names):
+            names = all_webcolor_names()
+        else:
+            names = all_webcolor_names  # type: ignore[assignment]
+        # Ensure list[str] with normalized spacing like elsewhere
+        if isinstance(names, Iterable):
+            return list(names)
+    except Exception:
+        pass
+    return []
 
 # =============================================================================
 # 1) CORE DISTANCES
@@ -143,7 +159,8 @@ def fuzzy_match_rgb_from_known_colors(
     """Does: Fuzzy match phrase to a known webcolor name."""
     import difflib
     q = normalize_token(phrase).replace("-", " ")
-    candidates = difflib.get_close_matches(q, all_webcolor_names, n=n, cutoff=cutoff)
+    names = _get_all_webcolor_names()
+    candidates = difflib.get_close_matches(q, names, n=n, cutoff=cutoff)
     return candidates[0] if candidates else None
 
 

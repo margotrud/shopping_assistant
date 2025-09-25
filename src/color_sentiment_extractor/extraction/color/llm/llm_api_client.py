@@ -26,7 +26,7 @@ from typing import Optional, Tuple, Protocol
 
 import requests
 
-from color_sentiment_extractor.extraction.color.utils.rgb_distance import _parse_rgb_tuple
+from color_sentiment_extractor.extraction.color.utils import _parse_rgb_tuple
 
 logger = logging.getLogger(__name__)
 

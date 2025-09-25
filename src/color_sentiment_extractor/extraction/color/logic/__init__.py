@@ -4,10 +4,13 @@ logic package
 
 High-level orchestration layer for color sentiment extraction.
 
-Submodules:
+Public API:
 -----------
-- classification/ : categorization utilities (tone–modifier mapping, etc.)
-- pipelines/      : end-to-end pipelines (phrase extraction, RGB resolution)
+- process_color_phrase()         → normalize & resolve RGB for a phrase
+- extract_phrases_from_segment() → validated phrase extraction
+- aggregate_color_phrase_results() → aggregate tones, phrases, RGBs
+- build_tone_modifier_mappings() → tone–modifier bidirectional mapping
+- format_tone_modifier_mappings() → formatted dict view
 """
 
 from .pipelines.rgb_pipeline import process_color_phrase

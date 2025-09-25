@@ -6,7 +6,9 @@ import logging
 from functools import lru_cache
 from typing import Optional, Set
 
-from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
+# ✅ simplified import via color/__init__.py
+from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
+
 from color_sentiment_extractor.extraction.general.fuzzy.scoring import rhyming_conflict
 from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
@@ -22,7 +24,7 @@ def _get_known_modifiers() -> Set[str]:
 
 @lru_cache(maxsize=1)
 def _get_known_tones() -> Set[str]:
-    # évite l’import fort depuis color.vocab ; source unique = config
+    # avoid strong import on color.vocab; single source of truth = config
     return frozenset(load_config("known_tones", mode="set"))
 
 
@@ -50,7 +52,7 @@ def is_suffix_root_match(
     a_norm = normalize_token(alias, keep_hyphens=True)
     t_norm = normalize_token(token, keep_hyphens=True)
 
-    # bases strictes (pas de fuzzy pour éviter les raccourcis approximatifs)
+    # strict bases (no fuzzy to avoid overreach)
     base_alias = recover_base(
         a_norm, known_modifiers=km, known_tones=kt, debug=False, fuzzy_fallback=False
     )
@@ -59,21 +61,19 @@ def is_suffix_root_match(
     )
 
     if debug:
-        logger.debug(
-            "[SUFFIX ROOT] %r→%r | %r→%r", t_norm, base_token, a_norm, base_alias
-        )
+        logger.debug("[SUFFIX ROOT] %r→%r | %r→%r", t_norm, base_token, a_norm, base_alias)
 
-    # Exiger une vraie transformation (au moins l’un a changé)
+    # Require an actual transformation (at least one changed)
     if (a_norm == base_alias) and (t_norm == base_token):
         if debug:
             logger.debug("[NO-OP] both unchanged → reject")
         return False
 
-    # Les deux doivent pointer vers la même base connue (mod ou tone)
+    # Both must resolve to the same known base (modifier or tone)
     if base_alias and base_token and (base_alias == base_token):
         base = base_alias
         if (base in km) or (base in kt):
-            # pas de conflit sémantique ou rime trompeuse
+            # no semantic or rhyming conflicts
             pair = frozenset({a_norm, t_norm})
             if (pair not in SEMANTIC_CONFLICTS) and not rhyming_conflict(a_norm, t_norm):
                 if debug:

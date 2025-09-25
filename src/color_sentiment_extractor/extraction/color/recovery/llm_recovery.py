@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Optional, Set
 
-from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
 from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
     resolve_modifier_token,
 )
