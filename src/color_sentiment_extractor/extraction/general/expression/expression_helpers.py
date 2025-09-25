@@ -10,28 +10,63 @@ Used By:
 - Compound token splitting (glued token fallback)
 """
 
+from __future__ import annotations
+
 # ──────────────────────────────────────────────────────────────
-# 1. Imports and Config
+# 1) Imports & Config
 # ──────────────────────────────────────────────────────────────
 
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Iterable
 import re
 from functools import lru_cache
 import time
-from color_sentiment_extractor.extraction.color.constants import EXPRESSION_SUPPRESSION_RULES, SEMANTIC_CONFLICTS
+
+from color_sentiment_extractor.extraction.color.constants import (
+    EXPRESSION_SUPPRESSION_RULES,
+    SEMANTIC_CONFLICTS,
+)
 from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-from color_sentiment_extractor.extraction.color.vocab import known_tones, all_webcolor_names
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-from color_sentiment_extractor.extraction.general.fuzzy.expression_match import match_expression_aliases
+from color_sentiment_extractor.extraction.general.fuzzy.expression_match import (
+    match_expression_aliases,
+)
 from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+
+
+# Chargements config (versions “validation” et “raw”)
 _CONTEXT_MAP = load_config("expression_context_rules", mode="validated_dict")
-_EXPRESSION_MAP_CACHED = load_config("expression_definition", mode="validated_dict")
+_EXPRESSION_MAP_NORM = load_config("expression_definition", mode="validated_dict")
 _EXPRESSION_MAP_RAW = load_config("expression_definition", mode="raw")
-_KNOWN_TONES = known_tones
 
 
 # ──────────────────────────────────────────────────────────────
-# 2. Trigger Token Utilities
+# 2) Cached vocab accessors (no “hard imports”)
+# ──────────────────────────────────────────────────────────────
+
+@lru_cache(maxsize=1)
+def _get_known_modifiers() -> Set[str]:
+    return frozenset(load_config("known_modifiers", mode="set"))
+
+@lru_cache(maxsize=1)
+def _get_known_tones() -> Set[str]:
+    return frozenset(load_config("known_tones", mode="set"))
+
+@lru_cache(maxsize=1)
+def _get_all_webcolor_names() -> Set[str]:
+    # Nom de clé à adapter à ta config si besoin (“webcolors_all” / “all_webcolor_names”, etc.)
+    # On tente plusieurs clés courantes pour robustesse.
+    for key in ("webcolors_all", "all_webcolor_names", "webcolor_names"):
+        try:
+            vals = load_config(key, mode="set")
+            if vals:
+                return frozenset(vals)
+        except Exception:
+            pass
+    return frozenset()
+
+
+# ──────────────────────────────────────────────────────────────
+# 3) Trigger Token Utilities
 # ──────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
@@ -46,10 +81,9 @@ def get_all_trigger_tokens() -> Dict[str, List[str]]:
     for expr, rules in expression_map.items():
         mods = rules.get("modifiers", []) or []
         aliases = rules.get("aliases", []) or []
-        tokens = list(set(mods + aliases))
+        tokens = list({*mods, *aliases})
         if tokens:
             trigger_map[expr] = tokens
-
     return trigger_map
 
 
@@ -68,7 +102,63 @@ def get_all_alias_tokens(expression_map: Dict) -> Set[str]:
 
 
 # ──────────────────────────────────────────────────────────────
-# 3. Expression Matching Logic
+# 4) Normalized alias / modifier indexes (perf helpers)
+# ──────────────────────────────────────────────────────────────
+
+@lru_cache(maxsize=1)
+def _get_normalized_alias_map() -> Dict[str, List[str]]:
+    """
+    Does: Build normalized alias → list(expressions) from definitions.
+    Returns: Dict[alias -> [expr, ...]].
+    """
+    alias_map: Dict[str, List[str]] = {}
+    for expr, data in _EXPRESSION_MAP_NORM.items():
+        for alias in data.get("aliases", []) or []:
+            norm = normalize_token(alias, keep_hyphens=True)
+            alias_map.setdefault(norm, []).append(expr)
+    return alias_map
+
+
+@lru_cache(maxsize=1)
+def _modifier_to_exprs() -> Dict[str, Set[str]]:
+    """
+    Does: Build normalized modifier → set(expressions) index.
+    Returns: Dict[modifier -> {expr, ...}].
+    """
+    idx: Dict[str, Set[str]] = {}
+    for expr, data in _EXPRESSION_MAP_NORM.items():
+        for m in data.get("modifiers", []) or []:
+            nm = normalize_token(m, keep_hyphens=True)
+            idx.setdefault(nm, set()).add(expr)
+    return idx
+
+
+@lru_cache(maxsize=1)
+def _expr_norm_to_raw() -> Dict[str, str]:
+    """
+    Does: Map normalized expression key → raw key for user-facing results.
+    """
+    return {normalize_token(e, keep_hyphens=True): e for e in _EXPRESSION_MAP_NORM.keys()}
+
+
+@lru_cache(maxsize=1)
+def _expr_to_valid_tones() -> Dict[str, List[str]]:
+    """
+    Does: Precompute expression → list of valid (normalized) tones (present in known_tones).
+    """
+    kt = _get_known_tones()
+    out: Dict[str, List[str]] = {}
+    for expr, data in _EXPRESSION_MAP_NORM.items():
+        mods = [normalize_token(m, keep_hyphens=True)
+                for m in (data.get("modifiers") or [])]
+        valid = [m for m in mods if m in kt]
+        if valid:
+            out[expr] = valid
+    return out
+
+
+# ──────────────────────────────────────────────────────────────
+# 5) Expression Matching Logic
 # ──────────────────────────────────────────────────────────────
 
 def extract_exact_alias_tokens(text: str, expression_map: Dict) -> List[str]:
@@ -84,8 +174,10 @@ def extract_exact_alias_tokens(text: str, expression_map: Dict) -> List[str]:
     pairs = [(s, normalize_token(s, keep_hyphens=True)) for s in items]
 
     taken, out = set(), []
-    for raw, norm in sorted(pairs, key=lambda x: -len(x[1])):
-        if re.search(rf"\b{re.escape(norm)}\b", text_lower) and not any(
+    for _, norm in sorted(pairs, key=lambda x: -len(x[1])):
+        # Frontières robustes (pas seulement \b, gère hyphens/accents)
+        pattern = rf"(?<!\w){re.escape(norm)}(?!\w)"
+        if re.search(pattern, text_lower) and not any(
             norm in t and norm != t for t in taken
         ):
             out.append(norm)
@@ -99,21 +191,7 @@ def get_matching_expression_tags_cached(text: str, debug: bool = False) -> Set[s
     Does: Cached wrapper for expression tag matching.
     Returns: Set of raw expression names.
     """
-    return _get_matching_expression_tags(text, _EXPRESSION_MAP_CACHED, debug)
-
-
-@lru_cache(maxsize=1)
-def _get_normalized_alias_map() -> Dict[str, List[str]]:
-    """
-    Does: Build normalized alias → list(expressions) from cached definitions.
-    Returns: Dict[alias -> [expr, ...]].
-    """
-    alias_map: Dict[str, List[str]] = {}
-    for expr, data in _EXPRESSION_MAP_CACHED.items():
-        for alias in data.get("aliases", []) or []:
-            norm = normalize_token(alias, keep_hyphens=True)
-            alias_map.setdefault(norm, []).append(expr)
-    return alias_map
+    return _get_matching_expression_tags(text, _EXPRESSION_MAP_NORM, debug)
 
 
 def _get_matching_expression_tags(text: str, expression_map: dict, debug: bool = False) -> Set[str]:
@@ -123,9 +201,7 @@ def _get_matching_expression_tags(text: str, expression_map: dict, debug: bool =
     """
     hits = match_expression_aliases(text, expression_map)  # set[str]
     alias_map = _get_normalized_alias_map()
-
-    # Build normalized expr-key → raw-key map so we return raw keys
-    expr_norm_to_raw = {normalize_token(e, keep_hyphens=True): e for e in expression_map.keys()}
+    expr_norm_to_raw = _expr_norm_to_raw()
 
     out: Set[str] = set()
     for item in hits:
@@ -141,10 +217,10 @@ def _get_matching_expression_tags(text: str, expression_map: dict, debug: bool =
 
 
 # ──────────────────────────────────────────────────────────────
-# 4. Expression → Tone Mapping
+# 6) Expression → Tone Mapping
 # ──────────────────────────────────────────────────────────────
 
-def map_expressions_to_tones(text: str, debug: bool = True) -> Dict[str, List[str]]:
+def map_expressions_to_tones(text: str, debug: bool = False) -> Dict[str, List[str]]:
     """
     Does: Map matched expressions → tone lists using context + suppression rules.
     Returns: Dict[expression → list of valid tone modifiers].
@@ -166,16 +242,10 @@ def map_expressions_to_tones(text: str, debug: bool = True) -> Dict[str, List[st
     longest_matched_aliases = apply_expression_suppression_rules(raw_matched)
     t4 = time.perf_counter()
 
-    for expr, data in _EXPRESSION_MAP_CACHED.items():
-        aliases = data.get("aliases", []) or []
-        if expr not in longest_matched_aliases and not any(
-            alias in longest_matched_aliases for alias in aliases
-        ):
-            continue
-        modifiers = data.get("modifiers", []) or []
-        valid_tones = [m for m in modifiers if m in _KNOWN_TONES]
-        if valid_tones:
-            results[expr] = valid_tones
+    expr_to_valid = _expr_to_valid_tones()
+    for expr in longest_matched_aliases:
+        if expr in expr_to_valid:
+            results[expr] = expr_to_valid[expr]
 
     end_total = time.perf_counter()
 
@@ -191,7 +261,25 @@ def map_expressions_to_tones(text: str, debug: bool = True) -> Dict[str, List[st
     return results
 
 
-def _apply_suffix_ties(candidates: Set[str], known_modifiers: Set[str]) -> Set[str]:
+# ──────────────────────────────────────────────────────────────
+# 7) Modifiers injection (alias/expr hits + token recovery)
+# ──────────────────────────────────────────────────────────────
+
+def _iter_token_strings(tokens: Iterable) -> List[str]:
+    """
+    Normalize input tokens: accepts a list of strings OR spaCy tokens/spans/docs.
+    Returns a list of raw token strings (lowercased version available as needed).
+    """
+    out: List[str] = []
+    for t in tokens:
+        if hasattr(t, "text"):
+            out.append(str(t.text))
+        else:
+            out.append(str(t))
+    return out
+
+
+def _apply_suffix_ties(candidates: Set[str]) -> Set[str]:
     """
     Does: Resolve root vs '-y' ties by keeping the '-y' form when both exist.
     Returns: Pruned set of modifiers.
@@ -215,20 +303,16 @@ def _apply_semantic_conflicts_local(candidates: Set[str]) -> Set[str]:
     """
     conf = SEMANTIC_CONFLICTS
 
-    # Fast path: nothing to do
     if not conf or not candidates:
         return candidates
 
-    # Normalize helper
     def norm(s: str) -> str:
         return normalize_token(s, keep_hyphens=True)
 
-    # Shape 1: dict(canonical -> variants)
     if isinstance(conf, dict):
         canon_of = {}
         for canon, variants in conf.items():
             c = norm(canon)
-            # map canonical to itself so it wins if present
             canon_of[c] = c
             for v in (variants or []):
                 canon_of[norm(v)] = c
@@ -240,57 +324,62 @@ def _apply_semantic_conflicts_local(candidates: Set[str]) -> Set[str]:
 
         keep = set()
         for canon, forms in groups.items():
-            # Prefer the form that equals canonical after normalization; else shortest; else alpha.
-            preferred = next((f for f in forms if norm(f) == canon),
-                             sorted(forms, key=lambda s: (len(s), s))[0])
+            preferred = next(
+                (f for f in forms if norm(f) == canon),
+                sorted(forms, key=lambda s: (len(s), s))[0],
+            )
             keep.add(preferred)
         return keep
 
-    # Shape 2: iterable of conflict groups (pairs/sets/tuples)
+    # Iterable of groups (pairs/sets/tuples)
     try:
-        # Build list of normalized groups (only groups with size >= 2 matter)
-        groups = []
+        ngroups = []
         for g in conf:
             if isinstance(g, (tuple, list, set, frozenset)):
                 grp = {norm(x) for x in g if isinstance(x, str)}
                 if len(grp) >= 2:
-                    groups.append(grp)
+                    ngroups.append(grp)
 
-        if not groups:
+        if not ngroups:
             return candidates
 
         survivors = set(candidates)
         cand_norm_map = {m: norm(m) for m in candidates}
 
-        for grp in groups:
+        for grp in ngroups:
             present = [m for m in candidates if cand_norm_map[m] in grp]
             if len(present) >= 2:
-                # Deterministic winner: shortest after norm; then alphabetical
                 winner = sorted(present, key=lambda s: (len(cand_norm_map[s]), cand_norm_map[s]))[0]
                 for m in present:
                     if m != winner:
                         survivors.discard(m)
-
         return survivors
     except Exception:
-        # If anything goes weird, fail open (no pruning)
         return candidates
 
 
 def _inject_expression_modifiers(
-    tokens,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    expression_map: dict,
+    tokens: Iterable,
+    known_modifiers: Set[str] | None = None,
+    known_tones: Set[str] | None = None,
+    expression_map: dict | None = None,
     debug: bool = False,
 ) -> List[str]:
     """
     Does: Inject modifiers from alias/expr hits + token→base recovery (with fuzzy fallback).
+    Accepts: list of strings OR spaCy Doc/Span (tokens can have .text / .lower_).
     Returns: Sorted list of normalized modifiers.
     """
-    tok_strs = [t.text for t in tokens]
-    tok_lc = [t.lower_ for t in tokens]
-    raw_text = " ".join(tok_strs)  # ✅ FIX: works for lists or spaCy Doc/Span
+    if known_modifiers is None:
+        known_modifiers = set(_get_known_modifiers())
+    if known_tones is None:
+        known_tones = set(_get_known_tones())
+    if expression_map is None:
+        expression_map = _EXPRESSION_MAP_NORM
+
+    tok_strs = _iter_token_strings(tokens)
+    tok_lc = [s.lower() for s in tok_strs]
+    raw_text = " ".join(tok_strs)
 
     if debug:
         print("\n[START] _inject_expression_modifiers")
@@ -303,6 +392,7 @@ def _inject_expression_modifiers(
     # STEP 2 — token-scoped: alias→expr, else base→expr
     alias_map = _get_normalized_alias_map()
     norm_known_mods = {normalize_token(m, keep_hyphens=True) for m in known_modifiers}
+    mod_to_expr = _modifier_to_exprs()
 
     for t in tok_lc:
         tn = normalize_token(t, keep_hyphens=True)
@@ -314,7 +404,7 @@ def _inject_expression_modifiers(
                 print(f"  Token '{t}' is alias → exprs {sorted(alias_map[tn])}")
             continue
 
-        # Base recovery (strict)
+        # Base recovery (strict + optional fuzzy fallback)
         base = recover_base(
             t,
             known_modifiers=known_modifiers,
@@ -323,7 +413,6 @@ def _inject_expression_modifiers(
             fuzzy_fallback=True,
         )
 
-        # Fallback (fuzzy) only if strict failed; accept only modifiers
         if not base:
             cand = recover_base(t, allow_fuzzy=True)
             if cand and normalize_token(cand, keep_hyphens=True) in norm_known_mods:
@@ -331,28 +420,28 @@ def _inject_expression_modifiers(
 
         if base:
             bn = normalize_token(base, keep_hyphens=True)
-            for expr, info in expression_map.items():
-                mods = {normalize_token(m, keep_hyphens=True) for m in info.get("modifiers", []) or []}
-                if bn in mods:
-                    matched_exprs.add(expr)
-                    if debug:
-                        print(f"  Token '{t}' → base '{base}' → expr '{expr}'")
+            for expr in mod_to_expr.get(bn, ()):
+                matched_exprs.add(expr)
+                if debug:
+                    print(f"  Token '{t}' → base '{base}' → expr '{expr}'")
 
     # STEP 3 — collect modifiers from matched expressions + raw tokens that are modifiers
     collected = set()
     for expr in matched_exprs:
         for m in expression_map.get(expr, {}).get("modifiers", []) or []:
-            if normalize_token(m, keep_hyphens=True) in norm_known_mods:
-                collected.add(normalize_token(m, keep_hyphens=True))
+            nm = normalize_token(m, keep_hyphens=True)
+            if nm in norm_known_mods:
+                collected.add(nm)
 
     for t in tok_lc:
-        if normalize_token(t, keep_hyphens=True) in norm_known_mods:
-            collected.add(normalize_token(t, keep_hyphens=True))
+        nt = normalize_token(t, keep_hyphens=True)
+        if nt in norm_known_mods:
+            collected.add(nt)
 
-    # Tie + conflict cleanup
+    # Conflicts puis ties (ou inverse selon ta règle métier)
     before = set(collected)
-    collected = _apply_suffix_ties(collected, known_modifiers)
     collected = _apply_semantic_conflicts_local(collected)
+    collected = _apply_suffix_ties(collected)
 
     if debug:
         removed = sorted(before - collected)
@@ -363,9 +452,8 @@ def _inject_expression_modifiers(
     return sorted(collected)
 
 
-
 # ──────────────────────────────────────────────────────────────
-# 5. Contextual Promotion and Suppression
+# 8) Contextual Promotion and Suppression
 # ──────────────────────────────────────────────────────────────
 
 def apply_expression_context_rules(
@@ -405,16 +493,20 @@ def apply_expression_suppression_rules(matched: Set[str]) -> Set[str]:
 
 
 # ──────────────────────────────────────────────────────────────
-# 6. Glued Token Vocabulary & Expression Input Normalization
+# 9) Glued Token Vocabulary & Expression Input Normalization
 # ──────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
 def get_glued_token_vocabulary() -> Set[str]:
     """
     Does: Return full vocab for glued-token splitting (tones + modifiers + webcolor names).
-    Returns: Set of tokens.
+    Returns: Set of tokens (normalized, hyphens preserved).
     """
-    known_modifiers = load_config("known_modifiers", mode="set")
-    return known_tones.union(known_modifiers).union(all_webcolor_names)
-
-
+    known_modifiers = _get_known_modifiers()
+    known_tones = _get_known_tones()
+    webcolors = _get_all_webcolor_names()
+    # Normaliser pour cohérence
+    norm = lambda s: normalize_token(s, keep_hyphens=True)
+    return frozenset({*(norm(x) for x in known_tones),
+                      *(norm(x) for x in known_modifiers),
+                      *(norm(x) for x in webcolors)})
