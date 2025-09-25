@@ -1,42 +1,85 @@
 # color/recovery/fuzzy_recovery.py
 
-import warnings
-from typing import Optional
+from __future__ import annotations
+
+import logging
+from functools import lru_cache
+from typing import Optional, Set
+
 from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
-from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
 from color_sentiment_extractor.extraction.general.fuzzy.scoring import rhyming_conflict
 from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 from color_sentiment_extractor.extraction.general.utils.load_config import load_config
 
-KNOWN_MODIFIERS = load_config("known_modifiers", mode="set")
+logger = logging.getLogger(__name__)
 
 
-def is_suffix_root_match(alias: str, token: str, debug: bool = False) -> bool:
+@lru_cache(maxsize=1)
+def _get_known_modifiers() -> Set[str]:
+    return frozenset(load_config("known_modifiers", mode="set"))
+
+
+@lru_cache(maxsize=1)
+def _get_known_tones() -> Set[str]:
+    # évite l’import fort depuis color.vocab ; source unique = config
+    return frozenset(load_config("known_tones", mode="set"))
+
+
+def is_suffix_root_match(
+    alias: str,
+    token: str,
+    *,
+    known_modifiers: Optional[Set[str]] = None,
+    known_tones: Optional[Set[str]] = None,
+    debug: bool = False,
+) -> bool:
     """
-    Does: Checks if alias and token are suffix/root variants from valid suffix recovery.
-    Returns: True only if both recover to same known base and a transformation actually occurred.
+    Does:
+        Check if `alias` and `token` are suffix/root variants that recover to the same
+        known base (e.g., 'rosy' ↔ 'rose', 'beigey' ↔ 'beige'), without semantic/rhyming conflicts.
+    Returns:
+        True iff both recover to the same base in vocab AND at least one was transformed.
     """
-    base_token = recover_base(token, use_cache=True)
-    base_alias = recover_base(alias, use_cache=True)
-
-    if debug:
-        print(f"[🔁 SUFFIX ROOT CHECK] token='{token}' → '{base_token}' | alias='{alias}' → '{base_alias}'")
-
-    # exiger une vraie transformation
-    if token == base_token and alias == base_alias:
-        if debug:
-            print(f"[🚫 NO TRANSFORMATION] Both inputs unchanged → Rejecting '{alias}' vs '{token}'")
+    if not alias or not token:
         return False
 
-    if base_token and base_token == base_alias:
-        if (base_token in KNOWN_MODIFIERS) or (base_token in KNOWN_TONES):
-            if frozenset({alias, token}) not in SEMANTIC_CONFLICTS and not rhyming_conflict(alias, token):
+    km = known_modifiers or _get_known_modifiers()
+    kt = known_tones or _get_known_tones()
+
+    a_norm = normalize_token(alias, keep_hyphens=True)
+    t_norm = normalize_token(token, keep_hyphens=True)
+
+    # bases strictes (pas de fuzzy pour éviter les raccourcis approximatifs)
+    base_alias = recover_base(
+        a_norm, known_modifiers=km, known_tones=kt, debug=False, fuzzy_fallback=False
+    )
+    base_token = recover_base(
+        t_norm, known_modifiers=km, known_tones=kt, debug=False, fuzzy_fallback=False
+    )
+
+    if debug:
+        logger.debug(
+            "[SUFFIX ROOT] %r→%r | %r→%r", t_norm, base_token, a_norm, base_alias
+        )
+
+    # Exiger une vraie transformation (au moins l’un a changé)
+    if (a_norm == base_alias) and (t_norm == base_token):
+        if debug:
+            logger.debug("[NO-OP] both unchanged → reject")
+        return False
+
+    # Les deux doivent pointer vers la même base connue (mod ou tone)
+    if base_alias and base_token and (base_alias == base_token):
+        base = base_alias
+        if (base in km) or (base in kt):
+            # pas de conflit sémantique ou rime trompeuse
+            pair = frozenset({a_norm, t_norm})
+            if (pair not in SEMANTIC_CONFLICTS) and not rhyming_conflict(a_norm, t_norm):
                 if debug:
-                    print(f"[✅ ROOT MATCH] via base '{base_token}'")
+                    logger.debug("[OK] common base=%r; no conflict", base)
                 return True
 
     if debug:
-        print(f"[❌ SUFFIX MATCH FAIL] '{alias}' vs '{token}'")
+        logger.debug("[FAIL] alias=%r token=%r baseA=%r baseT=%r", a_norm, t_norm, base_alias, base_token)
     return False
-
-

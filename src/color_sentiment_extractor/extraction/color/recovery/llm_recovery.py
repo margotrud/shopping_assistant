@@ -1,23 +1,37 @@
 # extraction/color/recovery/llm_recovery.py
+from __future__ import annotations
+
+import logging
 import re
+from typing import Optional, Set
+
 from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
-from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import resolve_modifier_token
+from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
+    resolve_modifier_token,
+)
+from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base  # ← import top-level
+
+logger = logging.getLogger(__name__)
 
 # 🔒 Teintes interdites en autonome (on ne veut pas les promouvoir en "tone" seules)
-AUTONOMOUS_TONE_BAN = {"dust", "glow"}
+AUTONOMOUS_TONE_BAN: Set[str] = {"dust", "glow"}
+
 
 # ------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------
-def _preserve_surface_mod_when_valid_pair(text: str, known_modifiers: set, known_tones: set, debug: bool=False) -> str:
+def _preserve_surface_mod_when_valid_pair(
+    text: str, known_modifiers: Set[str], known_tones: Set[str], debug: bool = False
+) -> str:
     """
-    Si 'left right' avec right ∈ known_tones et left est une surface suffixée (-y/-ish)
-    dont la base ∈ known_modifiers, on conserve la surface telle quelle (ex: 'dusty rose').
+    Does:
+        If text is 'left right' with right ∈ known_tones, and left is a surface with
+        '-y'/'-ish' whose base ∈ known_modifiers, keep the surface (e.g., 'dusty rose').
     """
     if not text:
         return text
+
     normalized = text.strip().lower()
     m = re.match(r"^\s*([a-z\-]+)\s+([a-z][a-z\-\s]*)\s*$", normalized)
     if not m:
@@ -27,17 +41,17 @@ def _preserve_surface_mod_when_valid_pair(text: str, known_modifiers: set, known
     if right not in known_tones:
         return text
 
-    if left.endswith("y") or left.endswith("ish"):
+    if left.endswith(("y", "ish")):
         base = recover_base(
             left,
             known_modifiers=known_modifiers,
             known_tones=known_tones,
             fuzzy_fallback=False,
-            debug=False
+            debug=False,
         )
         if base and base in known_modifiers:
             if debug:
-                print(f"[🛡️ PRESERVE SURFACE] '{left} {right}' (base='{base}')")
+                logger.debug("[PRESERVE SURFACE] '%s %s' (base='%s')", left, right, base)
             return f"{left} {right}"
 
     return text
@@ -48,162 +62,169 @@ def _preserve_surface_mod_when_valid_pair(text: str, known_modifiers: set, known
 # ------------------------------------------------------------
 def _attempt_simplify_token(
     token: str,
-    known_modifiers: set,
-    known_tones: set,
+    known_modifiers: Set[str],
+    known_tones: Set[str],
     llm_client,
     role: str = "modifier",
-    debug: bool = True
-) -> str | None:
+    debug: bool = True,
+) -> Optional[str]:
     """
-    Uses LLM to simplify a noisy token into a known tone or modifier.
-    Returns a valid simplified form or None.
+    Does:
+        Use LLM to simplify a noisy token into a known tone or modifier.
+    Returns:
+        A valid normalized token or None.
     """
     if debug:
-        print("─────── 🧪 _attempt_simplify_token ───────")
-        print(f"[INPUT] token = '{token}'   | role = '{role}'")
-        print(f"[STEP] Calling simplify_phrase_if_needed...")
+        logger.debug("─────── _attempt_simplify_token ───────")
+        logger.debug("[INPUT] token=%r | role=%r", token, role)
 
-    simplified = simplify_phrase_if_needed(token, known_modifiers, known_tones, llm_client, debug=debug)
+    simplified = simplify_phrase_if_needed(
+        token, known_modifiers, known_tones, llm_client, debug=debug
+    )
 
     if debug:
-        print(f"[SIMPLIFIED] LLM result: '{simplified}'")
+        logger.debug("[SIMPLIFIED] LLM result: %r", simplified)
 
     if simplified:
-        # récupérer le 1er mot (et non le 1er caractère !)
-        index = 0 if role == "modifier" else -1
         words = simplified.strip().split()
-        raw_result = words[index] if words else simplified.strip()
+        # rôle: on prend le 1er mot pour 'modifier', le dernier pour 'tone'
+        idx = 0 if role == "modifier" else -1
+        raw_result = words[idx] if words else simplified.strip()
         result = normalize_token(raw_result, keep_hyphens=True)
 
         if debug:
-            print(f"[PARSE] Extracted result = '{raw_result}' → normalized = '{result}'")
-            print(f"[CHECK] Is '{result}' in known_modifiers? → {result in known_modifiers}")
-            print(f"[CHECK] Is '{result}' in known_tones?     → {result in known_tones}")
+            logger.debug(
+                "[PARSE] raw=%r → normalized=%r | in_mod=%s | in_tone=%s",
+                raw_result,
+                result,
+                result in known_modifiers,
+                result in known_tones,
+            )
 
         # 🚫 banlist pour tones autonomes indésirables
         if role == "tone" and result in AUTONOMOUS_TONE_BAN:
             if debug:
-                print(f"[⛔ BANLIST] '{result}' is not allowed as a standalone tone")
+                logger.debug("[BANLIST] %r disallowed as standalone tone", result)
             return None
 
         if (
-            (role == "modifier" and result in known_modifiers) or
-            (role == "tone" and result in known_tones) or
-            result in known_modifiers or result in known_tones  # fallback flex
+            (role == "modifier" and result in known_modifiers)
+            or (role == "tone" and result in known_tones)
+            or result in known_modifiers
+            or result in known_tones
         ):
             if debug:
-                print(f"[✅ RETURN] Final accepted result: '{result}'")
+                logger.debug("[ACCEPT] %r", result)
             return result
-        else:
-            if debug:
-                print(f"[⛔ REJECT] Simplified token '{result}' not in known sets")
-            # 🔁 Fallback: base recovery
-            recovered = recover_base(
-                result,
-                known_modifiers=known_modifiers,
-                known_tones=known_tones,
-                fuzzy_fallback=True,
-                fuzzy_threshold=78,
-                use_cache=False,
-                debug=debug,
-                depth=0,
-            )
-            # Re-check banlist si on a demandé un tone
-            if role == "tone" and recovered in AUTONOMOUS_TONE_BAN:
-                if debug:
-                    print(f"[⛔ BANLIST] recovered '{recovered}' disallowed as standalone tone")
-                return None
 
-            if recovered:
-                if debug:
-                    print(f"[✅ FALLBACK RECOVERY] '{result}' → '{recovered}'")
-                return recovered
+        # 🔁 Fallback: base recovery (strict)
+        recovered = recover_base(
+            result,
+            known_modifiers=known_modifiers,
+            known_tones=known_tones,
+            fuzzy_fallback=True,
+            fuzzy_threshold=78,
+            use_cache=False,
+            debug=debug,
+            depth=0,
+        )
+
+        if role == "tone" and recovered in AUTONOMOUS_TONE_BAN:
+            if debug:
+                logger.debug("[BANLIST] recovered %r disallowed as standalone tone", recovered)
+            return None
+
+        if recovered:
+            if debug:
+                logger.debug("[FALLBACK RECOVERY] %r → %r", result, recovered)
+            return recovered
 
     else:
         if debug:
-            print(f"[⛔ REJECT] No simplification result for '{token}'")
+            logger.debug("[REJECT] No simplification result for %r", token)
 
     if debug:
-        print(f"[FINAL] Returning: None")
-        print("────────────────────────────────────────\n")
-
+        logger.debug("[FINAL] Returning: None")
     return None
 
 
-def _extract_filtered_tokens(tokens, known_modifiers, known_tones, llm_client, debug):
+def _extract_filtered_tokens(tokens, known_modifiers, known_tones, llm_client, debug: bool):
     """
-    Extracts modifier or tone tokens from a token stream using resolution logic,
-    with fallback to LLM simplification and several safety filters.
+    Does:
+        Extract modifier or tone tokens from a token stream using resolution logic,
+        with fallback to LLM simplification and several safety filters.
+    Returns:
+        A set of resolved tokens (modifiers/tones).
     """
-    result = set()
+    result: Set[str] = set()
 
     for tok in tokens:
         raw = normalize_token(tok.text, keep_hyphens=True)
 
         if debug:
-            print(f"\n[🧪 TOKEN] '{tok.text}' → normalized: '{raw}' (POS={tok.pos_})")
-            print(f"[🔎 CHECK] In COSMETIC_NOUNS? → {raw in COSMETIC_NOUNS}")
+            logger.debug("[TOKEN] %r → %r (POS=%s) | cosmetic=%s", tok.text, raw, tok.pos_, raw in COSMETIC_NOUNS)
 
         # Block known cosmetic nouns
         if raw in COSMETIC_NOUNS:
             if debug:
-                print(f"[⛔ SKIPPED] Cosmetic noun '{raw}' blocked")
+                logger.debug("[SKIP] Cosmetic noun %r", raw)
             continue
 
         # Skip connectors via POS tag
         if tok.pos_ == "CCONJ":
             if debug:
-                print(f"[⛔ SKIPPED] Connector '{raw}' ignored (POS=CCONJ)")
+                logger.debug("[SKIP] Connector %r (POS=CCONJ)", raw)
             continue
 
         # Rule-based resolver first
         resolved = resolve_modifier_token(raw, known_modifiers, known_tones)
 
         # Fallback to LLM simplifier
-        if not resolved:
-            simplified = simplify_phrase_if_needed(raw, known_modifiers, known_tones, llm_client, debug=debug)
+        if not resolved and llm_client is not None:
+            simplified = simplify_phrase_if_needed(
+                raw, known_modifiers, known_tones, llm_client, debug=debug
+            )
             if simplified:
-                # FIX: prendre le 1er mot correctement
-                resolved_candidate = simplified.strip().split()[0]
-                if resolved_candidate in known_modifiers or resolved_candidate in known_tones:
-                    resolved = resolved_candidate
+                candidate = simplified.strip().split()[0]
+                if candidate in known_modifiers or candidate in known_tones:
+                    resolved = candidate
                     if debug:
-                        print(f"[🔁 SIMPLIFIED FALLBACK] '{raw}' → '{resolved}'")
+                        logger.debug("[SIMPLIFIED FALLBACK] %r → %r", raw, resolved)
 
         if debug:
-            print(f"[🔍 RESOLVED] '{raw}' → '{resolved}'")
-            print(f"[📌 raw ∈ tones?] {raw in known_tones}")
-            print(f"[📌 resolved ∈ tones?] {resolved in known_tones if resolved else '—'}")
-            print(f"[📏 resolved == raw?] {resolved == raw if resolved else '—'}")
-            print(f"[📏 resolved starts with raw?] {resolved.startswith(raw) if resolved else '—'}")
-            print(f"[📐 contains hyphen?] {'-' in resolved if resolved else '—'}")
-            print(f"[🧮 total matches so far] {len(result)}")
+            logger.debug(
+                "[RESOLVED] raw=%r → %r | raw∈tones=%s | res∈tones=%s",
+                raw,
+                resolved,
+                raw in known_tones,
+                (resolved in known_tones) if resolved else "—",
+            )
 
         # Safety filters
         if len(raw) <= 3 and resolved != raw and resolved not in known_modifiers and resolved not in known_tones:
             if debug:
-                print(f"[⛔ REJECTED] Token '{raw}' too short for safe fuzzy match → '{resolved}'")
+                logger.debug("[REJECT] %r too short for safe fuzzy → %r", raw, resolved)
             continue
 
         if resolved and "-" in resolved and not resolved.startswith(raw):
             if debug:
-                print(f"[⛔ REJECTED] Fuzzy '{raw}' → '{resolved}' (compound mismatch)")
+                logger.debug("[REJECT] compound mismatch: %r → %r", raw, resolved)
             continue
 
         if resolved and " " in resolved and " " not in raw:
             if debug:
-                print(f"[⛔ REJECTED] Fuzzy '{raw}' → '{resolved}' (multi-word from single token)")
+                logger.debug("[REJECT] multi-word from single token: %r → %r", raw, resolved)
             continue
 
         if len(result) >= 3 and resolved and resolved != raw:
             if debug:
-                print(f"[⛔ REJECTED] Skipping fuzzy '{raw}' → '{resolved}' (already 3+ matches)")
+                logger.debug("[REJECT] already 3+ matches, skipping fuzzy %r → %r", raw, resolved)
             continue
 
         if resolved:
             result.add(resolved)
             if debug:
-                print(f"[🎯 STANDALONE MATCH] '{raw}' → '{resolved}'")
+                logger.debug("[MATCH] %r → %r", raw, resolved)
 
     return result
 
@@ -212,66 +233,88 @@ def _extract_filtered_tokens(tokens, known_modifiers, known_tones, llm_client, d
 # LLM wrappers
 # ------------------------------------------------------------
 def build_prompt(phrase: str) -> str:
+    """Kept for compatibility; NOT used by OpenRouterClient.simplify()."""
     return f"What is the simplified base color or tone implied by: '{phrase}'?"
 
 
-def simplify_color_description_with_llm(phrase: str, llm_client, cache=None, debug=False) -> str:
-    prompt = build_prompt(phrase)
+def simplify_color_description_with_llm(
+    phrase: str,
+    llm_client,
+    cache=None,
+    debug: bool = False,
+) -> str:
+    """
+    Does:
+        Ask the LLM client to simplify a color description.
+        NOTE: OpenRouterClient.simplify() expects the raw phrase (it builds the prompt itself).
+    """
     if debug:
-        print(f"[🧠 LLM PROMPT] {prompt}")
+        logger.debug("[LLM SIMPLIFY] phrase=%r", phrase)
 
-    if cache:
+    if cache and hasattr(cache, "get_simplified"):
         cached = cache.get_simplified(phrase)
         if cached:
             if debug:
-                print(f"[🗃️ CACHE HIT] '{phrase}' → '{cached}'")
+                logger.debug("[CACHE HIT] %r → %r", phrase, cached)
             return cached
 
-    simplified = llm_client.simplify(prompt)
+    # ✅ pass the PHRASE directly; the client builds its prompt
+    simplified = llm_client.simplify(phrase)
 
-    if cache:
+    if cache and hasattr(cache, "store_simplified"):
         cache.store_simplified(phrase, simplified)
 
     if debug:
-        print(f"[🧠 LLM RESPONSE] '{phrase}' → '{simplified}'")
+        logger.debug("[LLM RESPONSE] %r → %r", phrase, simplified)
     return simplified
 
 
-def simplify_phrase_if_needed(phrase, known_modifiers, known_tones, llm_client, cache=None, debug=False):
+def simplify_phrase_if_needed(
+    phrase: str,
+    known_modifiers: Set[str],
+    known_tones: Set[str],
+    llm_client,
+    cache=None,
+    debug: bool = False,
+) -> Optional[str]:
     """
-    Attempts to simplify a descriptive phrase only if it isn't already a known tone.
-    Also preserves '-y/-ish' surface when we already have a valid (modifier, tone) pair.
+    Does:
+        Simplify a descriptive phrase only if needed.
+        - Preserve '-y/-ish' surface when we already have a valid (modifier, tone) pair.
+        - If phrase is already a known tone, return as-is.
     """
     if llm_client is None:
         return None
+
     if debug:
-        print(f"[🔍 SIMPLIFY] Checking phrase: '{phrase}'")
+        logger.debug("[SIMPLIFY] Checking phrase: %r", phrase)
 
     # 1) preservation avant toute chose (ne pas aplatir 'dusty rose')
-    preserved = _preserve_surface_mod_when_valid_pair(phrase, known_modifiers, known_tones, debug=debug)
+    preserved = _preserve_surface_mod_when_valid_pair(
+        phrase, known_modifiers, known_tones, debug=debug
+    )
     if preserved != phrase:
-        # Phrase reconnue comme couple surface valide → on retourne tel quel
-        return preserved
+        return preserved  # valid surface pair → keep as-is
 
     normalized = phrase.lower().strip()
     if normalized in known_tones:
         if debug:
-            print(f"[✅ EXACT MATCH] '{phrase}' is a known tone (no fallback)")
+            logger.debug("[EXACT MATCH] %r is a known tone (no fallback)", phrase)
         return phrase
 
     simplified = simplify_color_description_with_llm(
-        phrase=phrase,
-        llm_client=llm_client,
-        cache=cache,
-        debug=debug
+        phrase=phrase, llm_client=llm_client, cache=cache, debug=debug
     )
+
     if simplified and simplified != phrase:
         if debug:
-            print(f"[✨ LLM SIMPLIFIED] '{phrase}' → '{simplified}'")
+            logger.debug("[LLM SIMPLIFIED] %r → %r", phrase, simplified)
         # re-apply preservation on the LLM output as well
-        simplified = _preserve_surface_mod_when_valid_pair(simplified, known_modifiers, known_tones, debug=debug)
+        simplified = _preserve_surface_mod_when_valid_pair(
+            simplified, known_modifiers, known_tones, debug=debug
+        )
         return simplified
 
     if debug:
-        print(f"[⚠️ UNSIMPLIFIED] No simplification applied, returning raw phrase")
+        logger.debug("[UNSIMPLIFIED] No simplification applied, returning raw phrase")
     return phrase
