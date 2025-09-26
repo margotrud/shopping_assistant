@@ -33,6 +33,11 @@ from color_sentiment_extractor.extraction.general.token.normalize import normali
 # ─────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
+def _dbg(enabled: bool, *args):
+    """Internal debug helper that respects logger config."""
+    if enabled:
+        logger.debug(" ".join(str(a) for a in args))
+
 # ─────────────────────────────────────────────
 # Config: VADER thresholds (tunable)
 # ─────────────────────────────────────────────
@@ -73,9 +78,14 @@ _negex_ready = None  # tri-state: None (unknown), True (available), False (not i
 _SENTIMENT_MODEL_NAME = "facebook/bart-large-mnli"
 
 def get_nlp():
+    """Safe loader: prefer en_core_web_sm, fallback to blank('en')"""
     global _nlp
     if _nlp is None:
-        _nlp = spacy.load("en_core_web_sm")
+        try:
+            _nlp = spacy.load("en_core_web_sm")
+        except Exception:
+            logger.warning("spaCy model 'en_core_web_sm' not found; falling back to blank('en').")
+            _nlp = spacy.blank("en")
     return _nlp
 
 def get_vader():
@@ -89,9 +99,19 @@ def get_vader():
     return _vader
 
 def get_sentiment_pipeline():
+    """Zero-shot classifier with device auto-detection (GPU if available)."""
     global _sentiment_pipeline
     if _sentiment_pipeline is None:
-        _sentiment_pipeline = pipeline("zero-shot-classification", model=_SENTIMENT_MODEL_NAME)
+        try:
+            import torch  # optional
+            device = 0 if torch.cuda.is_available() else -1
+        except Exception:
+            device = -1
+        _sentiment_pipeline = pipeline(
+            "zero-shot-classification",
+            model=_SENTIMENT_MODEL_NAME,
+            device=device,
+        )
     return _sentiment_pipeline
 
 def ensure_negex():
@@ -109,8 +129,8 @@ def ensure_negex():
     try:
         from negspacy.negation import Negex  # type: ignore
         if "negex" not in nlp.pipe_names:
-            # Default rules; you can swap to "en" or add custom patterns if needed
-            nlp.add_pipe("negex", config={"language": "en_clinical"})
+            # Prefer general English rules for non-clinical data
+            nlp.add_pipe("negex", config={"language": "en"})
         _negex_ready = True
     except Exception:
         _negex_ready = False
@@ -121,8 +141,10 @@ def ensure_negex():
 # ─────────────────────────────────────────────
 @lru_cache(maxsize=2048)
 def _vader_score(text: str) -> float:
+    """Cache VADER scores with light whitespace normalization (preserve case)."""
     try:
-        return get_vader().polarity_scores(text)["compound"]
+        key = re.sub(r"\s+", " ", text.strip())
+        return get_vader().polarity_scores(key)["compound"]
     except Exception:
         logger.exception("VADER scoring failed")
         return 0.0
@@ -133,22 +155,25 @@ def _vader_score(text: str) -> float:
 def classify_segments_by_sentiment_no_neutral(has_splitter: bool, segments: List[str]) -> Dict[str, List[str]]:
     """
     Classifies segments into positive/negative using VADER + BART (fallback).
-    If a segment resolves to 'neutral', we apply negation logic and a VADER re-check,
-    then force to positive/negative (design choice of this helper).
+    If a segment resolves to 'neutral', prefer negation cues to decide negative,
+    else default to positive.
     """
     classification = {"positive": [], "negative": []}
     for seg in segments:
         try:
             base = detect_sentiment(seg)          # hybrid (VADER → BART)
             mapped = map_sentiment(base, seg)     # negation override + VADER re-check
-            final = mapped if mapped in {"positive", "negative"} else "positive"
+            final = mapped
+            if final == "neutral":
+                hn, sn = is_negated_or_soft(seg, debug=False)
+                final = "negative" if (hn or sn) else "positive"
             classification[final].append(seg)
         except Exception:
             logger.exception("SENTIMENT ERROR on segment: %r", seg)
     return classification
 
 # ─────────────────────────────────────────────
-# Hybrid sentiment detection (with DI for essaitests2)
+# Hybrid sentiment detection (with DI for tests)
 # ─────────────────────────────────────────────
 def detect_sentiment(text: str, vader: Optional[SentimentIntensityAnalyzer] = None, bart=None) -> str:
     """
@@ -158,8 +183,8 @@ def detect_sentiment(text: str, vader: Optional[SentimentIntensityAnalyzer] = No
     Returns: 'positive' | 'negative' | 'neutral'
 
     DI hooks:
-      - vader: pass a fake/fixture in essaitests2 to avoid loading the real model
-      - bart: pass a fake/fixture (callable like HF pipeline) for essaitests2
+      - vader: pass a fake/fixture to avoid loading the real model in tests
+      - bart: pass a fake/fixture (callable like HF pipeline) in tests
     """
     try:
         v = vader or get_vader()
@@ -187,7 +212,7 @@ def map_sentiment(predicted: str, text: str) -> str:
     - For true neutrals, re-checking with VADER and deciding,
     - Falling back to 'neutral' if still ambiguous.
     """
-    hard_neg, soft_neg = is_negated_or_soft(text)
+    hard_neg, soft_neg = is_negated_or_soft(text, debug=False)
     if hard_neg or soft_neg:
         return "negative"
 
@@ -227,8 +252,8 @@ def contains_sentiment_splitter_with_segments(text: str) -> Tuple[bool, List[str
     #            only allow it when it's a configured discourse adverb.
     if index == 0 and len(doc) > 0 and doc[0].dep_ == "advmod":
         try:
-            # Lazy import to avoid touching file-level imports
-            from extraction.general.utils.load_config import load_config  # type: ignore
+            # Correct package path; lazy import to avoid heavy imports at module load
+            from color_sentiment_extractor.extraction.general.utils.load_config import load_config  # type: ignore
             discourse_adverbs = load_config("discourse_adverbs", mode="set")
         except Exception:
             discourse_adverbs = set()
@@ -260,7 +285,7 @@ def find_splitter_index(doc) -> Optional[int]:
     """
     for i, tok in enumerate(doc):
         if tok.dep_ == "cc" and tok.text.lower() in {"and", "or"}:
-            if is_tone_conjunction(doc, i):
+            if is_tone_conjunction(doc, i, debug=False):
                 continue
         if tok.dep_ in {"cc", "mark", "discourse"}:
             return i
@@ -269,14 +294,12 @@ def find_splitter_index(doc) -> Optional[int]:
             return i
     return None
 
-def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = True) -> bool:
+def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -> bool:
     """
     Avoid splitting when a conjunction connects two tone-like tokens.
     If `antonym_fn` is provided, it will be used to reject pairs of ADJ that are antonyms.
     """
-    def dbg(*args):
-        if debug:
-            print("[is_tone_conjunction]", *args)
+    def dbg(*args): _dbg(debug, "[is_tone_conjunction]", *args)
 
     # Bounds
     if index < 0 or index >= len(doc):
@@ -381,6 +404,7 @@ def split_text_on_index(doc, i: int) -> List[str]:
     left = doc[:i].text.strip()
     right = doc[i + 1:].text.strip()
     return [left, right]
+
 def fallback_split_on_punctuation(text: str) -> Tuple[bool, List[str]]:
     """
     Split on punctuation as a last resort. If only one segment is found,
@@ -392,7 +416,7 @@ def fallback_split_on_punctuation(text: str) -> Tuple[bool, List[str]]:
 # ─────────────────────────────────────────────
 # Sentence-level API with separators
 # ─────────────────────────────────────────────
-def _split_sentence_with_separators(text: str) -> Tuple[List[str], List[Optional[str]]]:
+def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], List[Optional[str]]]:
     """
     Returns (clauses, separators). Heuristic:
       - use dependency splitter if found → separator = token text at split
@@ -400,7 +424,7 @@ def _split_sentence_with_separators(text: str) -> Tuple[List[str], List[Optional
       - if no split → single clause, separator=None
     """
     nlp = get_nlp()
-    doc = nlp(text)
+    doc = _doc if _doc is not None else nlp(text)
 
     # 1) Try dependency-based split
     idx = find_splitter_index(doc)
@@ -435,9 +459,10 @@ def _split_sentence_with_separators(text: str) -> Tuple[List[str], List[Optional
     current = ""
     for part in parts:
         if part and part.strip() in {".", ";", ","}:
-            clauses.append(current.strip())
-            seps.append(part.strip())
-            current = ""
+            if current.strip():
+                clauses.append(current.strip())
+                seps.append(part.strip())
+                current = ""
         else:
             current += part
     if current.strip():
@@ -453,7 +478,9 @@ def analyze_sentence_sentiment(sentence: str) -> List[Dict[str, Optional[str]]]:
       [{"clause": str, "polarity": "positive|negative|neutral", "separator": str|None}, ...]
     """
     try:
-        clauses, separators = _split_sentence_with_separators(sentence)
+        nlp = get_nlp()
+        doc = nlp(sentence)
+        clauses, separators = _split_sentence_with_separators(sentence, _doc=doc)
         out: List[Dict[str, Optional[str]]] = []
         for i, clause in enumerate(clauses):
             base = detect_sentiment(clause)
@@ -469,8 +496,7 @@ def analyze_sentence_sentiment(sentence: str) -> List[Dict[str, Optional[str]]]:
 # ─────────────────────────────────────────────
 # Negation Detection (negspaCy optional + soft negation)
 # ─────────────────────────────────────────────
-
-def is_negated_or_soft(text: str, debug: bool = True) -> Tuple[bool, bool]:
+def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
     """
     Returns (hard_negation, soft_negation), mutually exclusive.
       - Soft motif: (neg cue) + 'too' + ADJ
@@ -480,38 +506,27 @@ def is_negated_or_soft(text: str, debug: bool = True) -> Tuple[bool, bool]:
           R2: token.morph.Polarity == 'Neg'
           R3: 'no' as DET (dep=det) of ADJ/NOUN/PROPN (e.g., 'no good', 'no problem')
           R4: PRON starting with 'no' as core argument (nsubj/obj/attr, etc.)
-
-    Decision:
-      - If a soft motif exists and no external hard cues: (False, True)
-      - If any external hard cue exists: (True, False)
-      - If no soft motif and any hard cue exists: (True, False)
-      - Otherwise: (False, False)
-
-    Debug prints include token dump, motif windows, shielding, and which rule fired.
     """
-    if debug:
-        print(f"\n[INPUT] {text!r}")
+    _dbg(debug, f"\n[INPUT] {text!r}")
 
     nlp = ensure_negex()
     doc = nlp(text)
 
     if debug:
-        print("\n[TOKENS DEBUG]")
+        _dbg(True, "\n[TOKENS DEBUG]")
         for i, tok in enumerate(doc):
-            print(
-                f"{i:02d} | text={tok.text!r:12} lemma={tok.lemma_!r:12} "
-                f"dep={tok.dep_:10} pos={tok.pos_:6} tag={tok.tag_:6} "
-                f"morph={tok.morph} Polarity={tok.morph.get('Polarity')}"
-            )
+            _dbg(True,
+                 f"{i:02d} | text={tok.text!r:12} lemma={tok.lemma_!r:12} "
+                 f"dep={tok.dep_:10} pos={tok.pos_:6} tag={tok.tag_:6} "
+                 f"morph={tok.morph} Polarity={tok.morph.get('Polarity')}")
 
-    # negspaCy (we won't use it directly for decision to keep either/or semantics clean)
+    # negspaCy (reference only)
     try:
         negex_flag = bool(getattr(doc._, "negex", False))
     except Exception as e:
         negex_flag = False
-        if debug: print(f"[negspaCy] Could not retrieve negex flag: {e}")
-    if debug:
-        print(f"[negspaCy span flag] {negex_flag}")
+        _dbg(debug, f"[negspaCy] Could not retrieve negex flag: {e}")
+    _dbg(debug, f"[negspaCy span flag] {negex_flag}")
 
     # --- SOFT motif: (neg cue) + 'too' + ADJ ---
     soft_neg = False
@@ -531,15 +546,15 @@ def is_negated_or_soft(text: str, debug: bool = True) -> Tuple[bool, bool]:
                 if t1.morph.get("Polarity") == ["Neg"]
                 else ("lemma" if t1.lemma_.lower() in {"not", "no"} else "pron/adv_no*")
             )
-            print(f"[SOFT CHECK] window=({t1.text}, {t2.text}, {t3.text}) "
-                  f"→ neg_cue={why} match={motif}")
+            _dbg(True, f"[SOFT CHECK] window=({t1.text}, {t2.text}, {t3.text}) "
+                       f"→ neg_cue={why} match={motif}")
         if motif:
             soft_neg = True
             soft_start, soft_end = i, i + 2
             soft_shield_idxs.update({i, i+1, i+2})
             if debug:
-                print(f"[SOFT SHIELD] shielding indices {sorted(soft_shield_idxs)} "
-                      f"for tokens {[doc[j].text for j in sorted(soft_shield_idxs)]}")
+                _dbg(True, f"[SOFT SHIELD] shielding indices {sorted(soft_shield_idxs)} "
+                           f"for tokens {[doc[j].text for j in sorted(soft_shield_idxs)]}")
             break
 
     # --- HARD cues (check only OUTSIDE soft window if soft exists) ---
@@ -578,11 +593,12 @@ def is_negated_or_soft(text: str, debug: bool = True) -> Tuple[bool, bool]:
         hard_neg, soft_neg = False, False
 
     if debug:
-        print(f"[RESULT] hard_neg={hard_neg}, soft_neg={soft_neg}")
+        _dbg(True, f"[RESULT] hard_neg={hard_neg}, soft_neg={soft_neg}")
         if fired:
-            print(f"[HARD-NEG RULE FIRED] {fired[0]} by token #{fired[1]} -> {fired[2]!r}")
+            _dbg(True, f"[HARD-NEG RULE FIRED] {fired[0]} by token #{fired[1]} -> {fired[2]!r}")
 
     return hard_neg, soft_neg
+
 # Backwards-compatible helpers retained (if you call them elsewhere)
 def is_negated(text: str) -> bool:
     return is_negated_or_soft(text)[0]
