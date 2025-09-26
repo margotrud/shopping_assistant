@@ -2,69 +2,139 @@
 scoring.py
 ==========
 
-Fuzzy scoring logic for comparing tokens with context-aware adjustments.
-Includes:
-- Hybrid fuzzy score with prefix bonus and rhyme penalty
-- Rhyming conflict detection
-- Soft fuzzy overlap count for multi-token inputs
+Fuzzy scoring for tokens with context-aware tweaks.
+Does: Hybrid score (ratio/partial + prefix bonus − rhyme/length penalties), rhyme check, token-list overlap.
 """
 
-from fuzzywuzzy import fuzz
+from __future__ import annotations
+
+import re
+from typing import Iterable, List, Sequence
+
 from rapidfuzz import fuzz as rf_fuzz
 
+
 # ─────────────────────────────────────────────────────────────
-# 1. Token-Level Scoring
+# Utils
+# ─────────────────────────────────────────────────────────────
+
+def _norm(s: str) -> str:
+    """
+    Does: Lowercase, trim, map hyphens/underscores to spaces, collapse spaces.
+    """
+    if s is None:
+        return ""
+    s = str(s).lower().strip().replace("-", " ").replace("_", " ")
+    return " ".join(s.split())
+
+
+def _common_prefix_len(a: str, b: str) -> int:
+    n = min(len(a), len(b))
+    i = 0
+    while i < n and a[i] == b[i]:
+        i += 1
+    return i
+
+
+# ─────────────────────────────────────────────────────────────
+# 1) Token-Level Scoring
 # ─────────────────────────────────────────────────────────────
 
 def fuzzy_token_score(a: str, b: str) -> float:
     """
-    Does: Computes a fuzzy similarity score between two tokens using fuzz ratios.
-    - Adds bonus for prefix match and subtracts penalty for short rhyming pairs.
-    Returns: A score from 0 to 100 reflecting similarity, capped within range.
+    Does: Compute hybrid similarity (ratio/partial) + prefix bonus − rhyme/length penalties.
+    Returns: Score in [0,100].
     """
-    partial = fuzz.partial_ratio(a, b)
-    ratio = fuzz.ratio(a, b)
+    a = _norm(a)
+    b = _norm(b)
+    if not a or not b:
+        return 0.0
 
-    # Prefix bonus (true only if both share start)
-    bonus = 8 if a[:3] == b[:3] else 0
+    ratio = rf_fuzz.ratio(a, b)
+    partial = rf_fuzz.partial_ratio(a, b)
 
-    # Penalize short rhyme matches like "ink/pink"
-    penalty = 12 if (
-        len(a) <= 5 and len(b) <= 5 and
-        a[-2:] == b[-2:] and a[0] != b[0]
-    ) else 0
+    # Prefix bonus scaled by actual common prefix (cap at +8)
+    cpl = _common_prefix_len(a, b)
+    prefix_bonus = min(8, cpl * 2) if cpl >= 2 else 0
 
-    score = (partial + ratio) / 2 + bonus - penalty
-    return max(0, min(100, round(score)))
+    # Rhyme penalty for short tokens that only share ending
+    rhyme_penalty = 0
+    if rhyming_conflict(a, b):
+        rhyme_penalty = 12
+
+    # Length gap penalty (cap at 10)
+    len_gap_penalty = min(10, abs(len(a) - len(b)) * 1.5)
+
+    score = (ratio + partial) / 2 + prefix_bonus - rhyme_penalty - len_gap_penalty
+    score = max(0.0, min(100.0, round(score)))
+    return score
+
 
 # ─────────────────────────────────────────────────────────────
-# 2. Rhyming Conflict Detection
+# 2) Rhyming Conflict Detection
 # ─────────────────────────────────────────────────────────────
+
 def rhyming_conflict(a: str, b: str) -> bool:
     """
-    Does: Checks if two short tokens rhyme but start differently (e.g. 'ink' vs 'pink').
-    Returns: True if likely a misleading rhyme match.
+    Does: True if two short tokens rhyme (same last 2–3 chars) but start differently.
     """
-    return (
-        len(a) <= 5 and len(b) <= 5 and
-        a[-2:] == b[-2:] and a[0] != b[0]
-    )
+    a = _norm(a)
+    b = _norm(b)
+    if not a or not b:
+        return False
+
+    # court et similaires par terminaison (2 ou 3 dernières lettres)
+    if len(a) <= 6 and len(b) <= 6 and a[:1] != b[:1]:
+        if len(a) >= 2 and len(b) >= 2 and a[-2:] == b[-2:]:
+            return True
+        if len(a) >= 3 and len(b) >= 3 and a[-3:] == b[-3:]:
+            return True
+    return False
+
 
 # ─────────────────────────────────────────────────────────────
-# 3. Token List Overlap
+# 3) Token List Overlap
 # ─────────────────────────────────────────────────────────────
-def fuzzy_token_overlap_count(a_tokens, b_tokens):
+
+def fuzzy_token_overlap_count(
+    a_tokens: Sequence[str],
+    b_tokens: Sequence[str],
+    *,
+    threshold: int = 85,
+) -> int:
     """
-       Does: Counts how many tokens in one list match tokens in another, using exact or fuzzy match (≥85).
-       Returns: Integer count of overlapping tokens across both lists, including soft suffix variants.
-       """
+    Does: Count overlaps between two token lists (exact or fuzzy ≥ threshold), consuming matches to avoid double count.
+    Returns: Integer overlap count.
+    """
+    if not a_tokens or not b_tokens:
+        return 0
+
+    a_norm: List[str] = [_norm(t) for t in a_tokens if _norm(t)]
+    b_norm: List[str] = [_norm(t) for t in b_tokens if _norm(t)]
+
     count = 0
-    for a in a_tokens:
-        for b in b_tokens:
-            if a == b:
-                count += 1
-                break
-            if rf_fuzz.ratio(a, b) >= 85:  # soft ~ softy, pink ~ pinky
-                count += 1
-                break
+    used = [False] * len(b_norm)
+
+    for a in a_norm:
+        # exact first
+        exact_idx = next((j for j, (bb, u) in enumerate(zip(b_norm, used)) if not u and a == bb), None)
+        if exact_idx is not None:
+            used[exact_idx] = True
+            count += 1
+            continue
+
+        # fuzzy fallback
+        best_j = -1
+        best_score = 0
+        for j, (bb, u) in enumerate(zip(b_norm, used)):
+            if u:
+                continue
+            s = rf_fuzz.ratio(a, bb)
+            if s > best_score:
+                best_score = s
+                best_j = j
+        if best_j >= 0 and best_score >= threshold:
+            used[best_j] = True
+            count += 1
+
     return count

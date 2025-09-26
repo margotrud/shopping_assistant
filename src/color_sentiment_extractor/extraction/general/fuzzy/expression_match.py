@@ -2,173 +2,234 @@
 expression_match.py
 ====================
 
-Matches user input against predefined expression aliases.
-Includes fuzzy fallback, multiword/singleword detection,
-duplicate suppression, and embedded conflict resolution.
+Does: Match input against predefined expression aliases + modifiers with fuzzy fallbacks,
+      de-duplication, and embedded-alias conflict resolution (longest-wins).
+Exports: cached_match_expression_aliases, match_expression_aliases
 """
 
+from __future__ import annotations
 
+import re
 from functools import lru_cache
+from typing import Dict, List, Set, Tuple
+
 from fuzzywuzzy import fuzz
 
-from color_sentiment_extractor.extraction.general.fuzzy.alias_validation import _handle_multiword_alias, is_valid_singleword_alias
-from color_sentiment_extractor.extraction.general.fuzzy.scoring import fuzzy_token_overlap_count
+from color_sentiment_extractor.extraction.general.fuzzy import (
+    _handle_multiword_alias, is_valid_singleword_alias,
+)
+
+
 from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-from color_sentiment_extractor.extraction.general.token.normalize import get_tokens_and_counts
+from color_sentiment_extractor.extraction.general.token.normalize import (
+    normalize_token,
+    get_tokens_and_counts,
+)
+
 
 # ─────────────────────────────────────────────────────────────
-# 1. Core alias acceptance logic
+# Cached config
 # ─────────────────────────────────────────────────────────────
 
-def should_accept_alias_match(alias, input_text, tokens, matched_aliases=None, debug=False):
+@lru_cache(maxsize=1)
+def _get_expression_def() -> Dict[str, dict]:
+    return load_config("expression_definition", mode="validated_dict")
+
+
+# ─────────────────────────────────────────────────────────────
+# Core alias acceptance
+# ─────────────────────────────────────────────────────────────
+
+def _contains_as_words(haystack: str, needle: str) -> bool:
     """
-    Does: Determines whether an alias (single or multi-word) should be accepted based on:
-    - Direct containment
-    - Avoiding duplicates
-    - Delegating to single/multiword handlers
-    Returns: Boolean flag indicating acceptance
+    Does: Word-boundary search (space/hyphen aware) for 'needle' inside 'haystack'.
     """
-    alias = alias.strip().lower()
-    input_text_lc = input_text.lower().strip()
+    H = normalize_token(haystack, keep_hyphens=True)
+    N = normalize_token(needle, keep_hyphens=True)
+    if not H or not N:
+        return False
+    # autorise lettres/chiffres autour des mots, borne par \b ; hyphens comptés comme séparateurs
+    return re.search(rf"\b{re.escape(N)}\b", H) is not None
+
+
+def should_accept_alias_match(
+    alias: str,
+    input_text: str,
+    tokens: List[str],
+    matched_aliases: Set[str] | None = None,
+    debug: bool = False,
+) -> bool:
+    """
+    Does: Decide whether alias (single/multi-word) should be accepted against input (word-boundary aware).
+    Returns: True if accepted via exact/word-boundary or delegated matchers.
+    """
+    alias = (alias or "").strip().lower()
     matched_aliases = matched_aliases or set()
-    is_multiword = " " in alias
 
-    if alias in input_text_lc:
-        if debug:
-            print(f"[✅ DIRECT CONTAINS MATCH] alias '{alias}' found inside input → accepting")
-        return True
-
-    for matched in matched_aliases:
-        if alias in matched and matched != alias:
+    # Évite de re-matcher une sous-partie d’un alias déjà accepté (multiword > single)
+    for m in matched_aliases:
+        # on coupe en tokens pour éviter sous-chaînes
+        if " " in m and alias in m.split():
             if debug:
-                print(f"[⛔ SKIP] '{alias}' is part of already matched multiword: '{matched}'")
+                print(f"[⛔ DUP-SUBPART] '{alias}' ∈ '{m}'")
             return False
 
+    # Word-boundary containment rapide
+    if _contains_as_words(input_text, alias):
+        if debug:
+            print(f"[✅ CONTAINS@WB] '{alias}' in input")
+        return True
+
+    # Délégation stricte
     return (
-        _handle_multiword_alias(alias, input_text, debug=False)
-        if is_multiword
-        else is_valid_singleword_alias(alias, input_text, tokens, matched_aliases, debug=False)
+        _handle_multiword_alias(alias, input_text, debug=debug)
+        if " " in alias
+        else is_valid_singleword_alias(alias, input_text, tokens, matched_aliases, debug=debug)
     )
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. Main expression alias matcher
+# Main matcher
 # ─────────────────────────────────────────────────────────────
+
 @lru_cache(maxsize=1000)
-def cached_match_expression_aliases(input_text: str) -> set[str]:
-    expression_def = load_config("expression_definition", mode="validated_dict")
+def cached_match_expression_aliases(input_text: str) -> Set[str]:
+    expression_def = _get_expression_def()
     return match_expression_aliases(input_text, expression_def)
 
-def match_expression_aliases(input_text, expression_map, debug=False):
-    """
-    Does: Matches expression aliases (multi and single-word) and modifiers from expression_map.
-    - Alias matches take priority and can run in exclusive mode.
-    - Modifiers matched via tokens or fuzzy matching.
-    - Known tone tokens can directly trigger matches if included in modifiers.
-    Returns: Set of canonical expressions matched from user input.
-    """
-    input_tokens = list(get_tokens_and_counts(input_text).keys())
-    input_lower = input_text.lower()
-    input_token_list = [tok.lower() for tok in input_tokens]
 
-    matched_expressions = set()
-    matched_aliases = set()
-    alias_matched_expressions = set()  # track expressions matched via alias
+def match_expression_aliases(
+    input_text: str,
+    expression_map: Dict[str, dict],
+    debug: bool = False,
+) -> Set[str]:
+    """
+    Does: Match aliases first (longest-first), then modifiers (ranked), then resolve conflicts.
+    Returns: Set of canonical expressions.
+    """
+    input_tokens: List[str] = list(get_tokens_and_counts(input_text).keys())
+    input_tokens_lc = [t.lower() for t in input_tokens]
+    input_lower = normalize_token(input_text, keep_hyphens=True)
 
-    # --- Pass 1: Alias matches (longest first) ---
+    matched_expressions: Set[str] = set()
+    matched_aliases: Set[str] = set()
+    expr_to_matched_alias: Dict[str, str] = {}
+
+    # --- Pass 1: Alias matches (longest aliases first) ---
     for expr, props in expression_map.items():
         aliases = sorted(props.get("aliases", []), key=lambda a: (-len(a.split()), -len(a)))
         for alias in aliases:
-            if should_accept_alias_match(alias, input_text, input_tokens, matched_aliases, debug=True):
-                matched_expressions.add(expr)
-                alias_matched_expressions.add(expr)
-                matched_aliases.add(alias.strip().lower())
+            if should_accept_alias_match(alias, input_text, input_tokens, matched_aliases, debug=debug):
+                canonical = expr
+                matched_expressions.add(canonical)
+                a_norm = normalize_token(alias, keep_hyphens=True)
+                matched_aliases.add(a_norm)
+                expr_to_matched_alias[canonical] = a_norm
                 if debug:
-                    print(f"[✅ MATCH] Alias '{alias}' → {expr}")
-                break  # one alias match per expression
+                    print(f"[✅ ALIAS] '{alias}' → {canonical}")
+                break  # un alias suffit par expression
 
-    # --- Build alias token set for modifier skip ---
-    alias_tokens = {tok for alias in matched_aliases for tok in alias.split()}
+    # Tokens des alias acceptés (pour exclure ces mots côté modifiers)
+    alias_token_blocklist: Set[str] = {tok for a in matched_aliases for tok in a.split()}
 
-    # --- Pass 2: Modifier matches (ranked) ---
-    mod_match_scores = {}
+    # --- Pass 2: Modifiers (scoring) ---
+    mod_scores: Dict[str, int] = {}
     for expr, props in expression_map.items():
-        # Skip expressions already matched via alias
-        if expr in alias_matched_expressions:
-            if debug:
-                print(f"[⏭️ SKIP MODIFIER PASS] '{expr}' already matched via alias")
+        # si déjà matché via alias, pas besoin de passer par les modifiers
+        if expr in matched_expressions:
             continue
 
-        # If alias match exists, skip unrelated expressions
-        if alias_matched_expressions:
-            allowed_with_aliases = set()  # keep empty for strict exclusivity
-            if expr not in allowed_with_aliases:
-                if debug:
-                    print(f"[⏭️ SKIP UNRELATED] Alias match exists → skip '{expr}'")
-                continue
+        # stricte exclusivité: si un alias a déjà matché ailleurs, n’autorise pas des matches par modifiers
+        if expr not in matched_expressions and matched_expressions:
+            continue
 
         score = 0
         for mod in props.get("modifiers", []):
-            mod_lower = mod.lower()
-
-            # Skip if modifier token is already part of an alias match
-            if mod_lower in alias_tokens:
+            m = normalize_token(mod, keep_hyphens=True).lower()
+            if not m:
                 continue
 
-            # Direct token match (e.g., tones like 'rose', 'beige')
-            if mod_lower in input_token_list:
+            # Skip si un des tokens du mod est déjà “pris” par un alias
+            if any(part in alias_token_blocklist for part in m.split()):
+                continue
+
+            # direct token match
+            if m in input_tokens_lc:
                 score += 1
                 continue
 
-            # Fuzzy match token or whole phrase
+            # fuzzy sur phrase complète ou token-wise
             if (
-                fuzz.ratio(input_lower, mod_lower) >= 90
-                or any(fuzz.ratio(tok, mod_lower) >= 90 for tok in input_token_list)
+                fuzz.ratio(input_lower, m) >= 90
+                or any(fuzz.ratio(tok, m) >= 90 for tok in input_tokens_lc)
             ):
                 score += 1
 
         if score > 0:
-            mod_match_scores[expr] = score
+            mod_scores[expr] = score
 
-    # Keep only top scoring expressions (avoid many matches from same tokens)
-    if mod_match_scores:
-        max_score = max(mod_match_scores.values())
-        for expr, score in mod_match_scores.items():
-            if score == max_score:
+    if mod_scores:
+        top = max(mod_scores.values())
+        for expr, sc in mod_scores.items():
+            if sc == top:
                 matched_expressions.add(expr)
+                if debug:
+                    print(f"[✅ MOD-SCORE] '{expr}' ← {sc}")
 
-    # --- Conflict removal ---
-    result = _remove_embedded_conflicts(
-        matched_expressions, matched_aliases, input_text, expression_map, debug=False
+    # --- Pass 3: Embedded conflicts (use only actually matched aliases) ---
+    resolved = _resolve_embedded_conflicts(
+        matched_expressions, expr_to_matched_alias, debug=debug
     )
 
-    # --- Restore alias matches removed by conflicts ---
-    result |= alias_matched_expressions
+    return resolved
 
-    return result
 
 # ─────────────────────────────────────────────────────────────
-# 3. Embedded alias cleanup
+# Embedded alias cleanup (longest-wins)
 # ─────────────────────────────────────────────────────────────
 
-def _remove_embedded_conflicts(matched_expressions, matched_aliases, input_text, expression_map, debug=False):
+def _resolve_embedded_conflicts(
+    matched_expressions: Set[str],
+    expr_to_alias: Dict[str, str],
+    debug: bool = False,
+) -> Set[str]:
     """
-    Does: Suppresses expressions if their matched alias is embedded in a longer alias.
-    Returns: Cleaned set of matched expressions.
+    Does: Remove expressions whose matched alias is embedded inside another matched alias (single-token embedding).
+    Returns: Clean set with preference for longer aliases.
     """
-    expressions_to_remove = set()
+    if len(matched_expressions) <= 1:
+        return matched_expressions
 
-    for expr in matched_expressions:
-        aliases = expression_map[expr].get("aliases", [])
-        for alias in aliases:
-            for other_expr in matched_expressions:
-                if other_expr == expr:
-                    continue
-                other_aliases = expression_map[other_expr].get("aliases", [])
-                for other_alias in other_aliases:
-                    if alias in other_alias and alias != other_alias:
+    keep: Set[str] = set(matched_expressions)  # start optimistic
+    items: List[Tuple[str, str]] = [
+        (expr, expr_to_alias.get(expr, "")) for expr in matched_expressions
+    ]
+
+    # Compare pairs; if alias A ⊂ alias B (as substring sans séparateurs), garde B (plus long)
+    def _is_single_token(s: str) -> bool:
+        return not bool(re.search(r"[\s_\-]", s))
+
+    for i in range(len(items)):
+        expr_i, alias_i = items[i]
+        for j in range(i + 1, len(items)):
+            expr_j, alias_j = items[j]
+            if not alias_i or not alias_j:
+                continue
+            ai = normalize_token(alias_i, keep_hyphens=True)
+            aj = normalize_token(alias_j, keep_hyphens=True)
+
+            # only consider single-token embeddings (rose ⊂ rosewood)
+            if _is_single_token(ai) and _is_single_token(aj):
+                if ai != aj and ai in aj:
+                    # keep longer (aj), drop shorter (ai)
+                    if len(aj) > len(ai) and expr_i in keep:
+                        keep.discard(expr_i)
                         if debug:
-                            print(f"[⛔ REMOVE EMBEDDED] '{alias}' in '{other_alias}' → Removing '{expr}'")
-                        expressions_to_remove.add(expr)
+                            print(f"[⛔ EMBEDDED] '{ai}' ⊂ '{aj}' → drop '{expr_i}'")
+                elif aj != ai and aj in ai:
+                    if len(ai) > len(aj) and expr_j in keep:
+                        keep.discard(expr_j)
+                        if debug:
+                            print(f"[⛔ EMBEDDED] '{aj}' ⊂ '{ai}' → drop '{expr_j}'")
 
-    return matched_expressions - expressions_to_remove
+    return keep
