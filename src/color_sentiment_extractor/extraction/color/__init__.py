@@ -2,8 +2,12 @@
 color
 =====
 
-Core color-domain definitions: constants, vocabularies, and base rules
-shared across extraction and normalization logic.
+Does: Aggregate core color-domain definitions (constants & vocabularies) shared
+      across extraction, recovery, and normalization logic.
+Used By: Token/base recovery, suffix handling, alias validation, phrase extraction,
+         RGB pipelines.
+Returns: Pure data structures and accessor functions; no side effects beyond
+         lightweight set construction.
 """
 
 # ── Constants ────────────────────────────────────────────────────────────────

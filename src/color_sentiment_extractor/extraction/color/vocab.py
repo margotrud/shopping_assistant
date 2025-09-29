@@ -1,8 +1,12 @@
 # src/color_sentiment_extractor/extraction/color/vocab.py
-
 """
-Does: Define canonical color vocabularies (CSS, XKCD, project fallbacks).
-Return: Pure frozen sets for safe import across the project.
+vocab
+=====
+
+Does: Define canonical color vocabularies (CSS, CSS2.1, XKCD) plus project fallbacks,
+      and expose convenient accessors for web named colors and known tones.
+Used By: Tone matching, alias validation, RGB/name resolution across extraction pipelines.
+Returns: Pure frozen sets and getter functions (no side effects beyond lazy caching).
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ WEB_ONLY_COLOR_NAMES: FrozenSet[str] = frozenset(_CSS3_NAMES | _CSS21_NAMES)
 
 # ── XKCD names (lazy to avoid heavy import at module load) ───────────────────
 def _load_xkcd_names() -> FrozenSet[str]:
+    """Does: Load and normalize XKCD color names once (lazy import)."""
     from matplotlib.colors import XKCD_COLORS  # lazy import
     return frozenset(k.replace("xkcd:", "").lower() for k in XKCD_COLORS.keys())
 
@@ -26,6 +31,7 @@ def _load_xkcd_names() -> FrozenSet[str]:
 _XKCD_NAMES: FrozenSet[str] | None = None
 
 def get_xkcd_names() -> FrozenSet[str]:
+    """Does: Return cached XKCD color names, loading them on first call."""
     global _XKCD_NAMES
     if _XKCD_NAMES is None:
         _XKCD_NAMES = _load_xkcd_names()
@@ -37,12 +43,12 @@ COSMETIC_FALLBACK_TONES: FrozenSet[str] = frozenset({
 })
 
 # ── Public aggregates ────────────────────────────────────────────────────────
-# All web *named* colors (CSS + XKCD)
 def get_web_named_color_names() -> FrozenSet[str]:
+    """Does: Return all web *named* colors (CSS + XKCD) as a frozen set."""
     return frozenset(WEB_ONLY_COLOR_NAMES | get_xkcd_names())
 
-# Full tone universe used for tone matching (web + project fallbacks)
 def get_known_tones() -> FrozenSet[str]:
+    """Does: Return the full tone universe (web named colors + cosmetic fallbacks)."""
     return frozenset(get_web_named_color_names() | COSMETIC_FALLBACK_TONES)
 
 # Backward-compat aliases (if other modules expect these names)

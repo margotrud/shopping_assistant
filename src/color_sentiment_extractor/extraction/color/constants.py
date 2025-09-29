@@ -2,12 +2,22 @@
 # ============
 
 """
-Does: Define global color-domain constants used across extraction and recovery.
-Return: Pure data structures (no side effects).
+constants
+=========
+
+Does: Define global, immutable color-domain constants for extraction & recovery
+      (conflicts, blocked pairs, suppression rules, suffix guidance, domain nouns).
+Used By: Token/base recovery, suffix handling, alias validation, phrase extraction,
+         sentiment/classification layers.
+Returns: Pure data structures only (no side effects).
+
+Notes importantes:
+- Les allowlists/overrides sont volontariamente petites : exceptions réelles, pas de logique générale.
 """
 from typing import Set
 
 AUTONOMOUS_TONE_BAN: Set[str] = {"dust", "glow"}  # disallow as standalone tones
+
 
 # ── 1) Conflicts & blocking ──────────────────────────────────────────────────
 
@@ -40,6 +50,7 @@ EXPRESSION_SUPPRESSION_RULES = {
     "soft glam": {"glamorous"},
 }
 
+
 # ── 2) Suffix recovery guidance ──────────────────────────────────────────────
 # Keep these small: they are for genuine exceptions, not general logic.
 
@@ -59,6 +70,7 @@ Y_SUFFIX_OVERRIDE_FORMS = {
     "rose": "rosy",
     "shine": "shiny",
 }
+
 
 # ── 3) Domain nouns to filter from phrase extraction ─────────────────────────
 COSMETIC_NOUNS = frozenset({

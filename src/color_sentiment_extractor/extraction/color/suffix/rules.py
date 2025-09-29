@@ -3,11 +3,15 @@ from __future__ import annotations
 
 """
 suffix.rules
+============
 
 Does: Utilities for suffix handling on color tokens: check '-y' eligibility, detect CVC endings,
       build '-y'/'-ey' variants (overrides/allowlists/rules), and apply reverse overrides.
+Used By: Suffix vocab builders, base-recovery flows, and compound/standalone extractors.
 Returns: Public helpers for suffix generation/recovery used across extraction pipelines.
-Used by: Suffix vocab builders, base-recovery flows, and compound/standalone extractors.
+
+Notes importantes:
+- EY_SUFFIX_ALLOWLIST peut être absent de `constants`; on bascule alors sur un ensemble vide.
 """
 
 from functools import lru_cache
@@ -29,12 +33,18 @@ __docformat__ = "google"
 log = logging.getLogger(__name__)
 
 # ── Domain imports ───────────────────────────────────────────────────────────
-from .constants import (
+from color_sentiment_extractor.extraction.color.constants import (
     Y_SUFFIX_ALLOWLIST,
-    EY_SUFFIX_ALLOWLIST,  # ensure defined in constants
     Y_SUFFIX_OVERRIDE_FORMS,
     RECOVER_BASE_OVERRIDES,
 )
+
+# Optionnel: EY_SUFFIX_ALLOWLIST peut ne pas exister dans constants.
+# On fournit un fallback neutre (ensemble vide) pour rester import-safe.
+try:  # ImportError si la constante est absente
+    from color_sentiment_extractor.extraction.color.constants import EY_SUFFIX_ALLOWLIST  # type: ignore
+except ImportError:
+    EY_SUFFIX_ALLOWLIST = frozenset()  # type: ignore[assignment]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Heuristics / small tables
@@ -92,7 +102,7 @@ def build_ey_variant(base: str, raw: str, debug: bool = False) -> Optional[str]:
     def _ey(stem: str) -> str:
         return (stem[:-1] if stem.endswith("e") else stem) + "ey"
 
-    # 1) dedicated allowlist first
+    # 1) dedicated allowlist first (si présente)
     if raw in EY_SUFFIX_ALLOWLIST or base in EY_SUFFIX_ALLOWLIST:
         if debug:
             log.debug("[allowlist -ey] %s/%s -> %s", raw, base, _ey(base))
