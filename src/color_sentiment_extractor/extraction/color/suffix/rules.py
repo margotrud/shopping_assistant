@@ -1,47 +1,67 @@
+# src/color_sentiment_extractor/extraction/color/suffix/rules.py
 from __future__ import annotations
+
+"""
+suffix.rules
+
+Does: Utilities for suffix handling on color tokens: check '-y' eligibility, detect CVC endings,
+      build '-y'/'-ey' variants (overrides/allowlists/rules), and apply reverse overrides.
+Returns: Public helpers for suffix generation/recovery used across extraction pipelines.
+Used by: Suffix vocab builders, base-recovery flows, and compound/standalone extractors.
+"""
 
 from functools import lru_cache
 from typing import Optional, Set
+import logging
 
-from color_sentiment_extractor.extraction.color import (
+# ── Public surface ───────────────────────────────────────────────────────────
+__all__ = [
+    "is_y_suffix_allowed",
+    "is_cvc_ending",
+    "build_y_variant",
+    "build_ey_variant",
+    "_apply_reverse_override",
+    "_collapse_repeated_consonant",
+]
+__docformat__ = "google"
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+log = logging.getLogger(__name__)
+
+# ── Domain imports ───────────────────────────────────────────────────────────
+from .constants import (
     Y_SUFFIX_ALLOWLIST,
+    EY_SUFFIX_ALLOWLIST,  # ensure defined in constants
     Y_SUFFIX_OVERRIDE_FORMS,
     RECOVER_BASE_OVERRIDES,
 )
 
-# Consonant endings that commonly accept -y
-ALLOW_ENDS = (
+# ─────────────────────────────────────────────────────────────────────────────
+# Heuristics / small tables
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Consonant endings that naturally accept a '-y' coloristic form.
+ALLOW_ENDS_FOR_Y = (
     "sh", "ch", "ss", "m", "n", "r", "l",
     "t", "d", "k", "p", "b", "f", "v",
     "s", "z", "c", "g", "h", "j",
 )
 
+# =============================================================================
+# Core rules
+# =============================================================================
 
 def is_y_suffix_allowed(base: str) -> bool:
-    """
-    Determine if a base token can take the '-y' suffix.
-
-    Rules:
-      - Allow if in Y_SUFFIX_ALLOWLIST
-      - Block if short (<3) or ends with 'y'/'e' or a vowel
-      - Allow typical soft/consonant endings (ALLOW_ENDS)
-    """
+    """Does: Return True if base can accept '-y' via allowlist + heuristic rules. Returns: bool."""
     if base in Y_SUFFIX_ALLOWLIST:
         return True
-    if len(base) < 3:
+    if len(base) < 3 or base.endswith(("y", "e")) or base[-1] in "aeiou":
         return False
-    if base.endswith(("y", "e")):
-        return False
-    if base[-1] in "aeiou":
-        return False
-    return base.endswith(ALLOW_ENDS)
+    return base.endswith(ALLOW_ENDS_FOR_Y)
 
 
 def is_cvc_ending(base: str) -> bool:
-    """
-    Return True if base ends with a consonant–vowel–consonant pattern (CVC),
-    excluding final 'w','x','y' (e.g., 'dew','tax','sky').
-    """
+    """Does: Detect final CVC (consonant–vowel–consonant) excluding final w/x/y. Returns: bool."""
     if len(base) < 3:
         return False
     c1, v, c2 = base[-3], base[-2], base[-1]
@@ -53,68 +73,61 @@ def is_cvc_ending(base: str) -> bool:
 
 
 def build_y_variant(base: str, debug: bool = False) -> Optional[str]:
-    """
-    Build a valid '-y' form from a base.
-      1) override table (e.g., 'rose'→'rosy')
-      2) allowlist
-      3) rule-based allow
-    Returns: suffixed token or None.
-    """
+    """Does: Build a '-y' variant using overrides, allowlist, then rules. Returns: token or None."""
     if base in Y_SUFFIX_OVERRIDE_FORMS:
+        if debug:
+            log.debug("[override -y] %s -> %s", base, Y_SUFFIX_OVERRIDE_FORMS[base])
         return Y_SUFFIX_OVERRIDE_FORMS[base]
-    if base in Y_SUFFIX_ALLOWLIST:
+    if base in Y_SUFFIX_ALLOWLIST or is_y_suffix_allowed(base):
+        if debug:
+            log.debug("[rule -y] %s -> %sy", base, base)
         return base + "y"
-    if is_y_suffix_allowed(base):
-        return base + "y"
+    if debug:
+        log.debug("[deny -y] %s", base)
     return None
 
 
 def build_ey_variant(base: str, raw: str, debug: bool = False) -> Optional[str]:
-    """
-    Build a valid '-ey' variant from a base.
-      - Accept if base/raw is allowlisted.
-      - Also allow sibilant endings (ge/ce/ze/se) by dropping final 'e'.
-    """
+    """Does: Build an '-ey' variant via dedicated allowlist or strict sibilant rule. Returns: token/None."""
     def _ey(stem: str) -> str:
         return (stem[:-1] if stem.endswith("e") else stem) + "ey"
 
-    if raw in Y_SUFFIX_ALLOWLIST or base in Y_SUFFIX_ALLOWLIST:
+    # 1) dedicated allowlist first
+    if raw in EY_SUFFIX_ALLOWLIST or base in EY_SUFFIX_ALLOWLIST:
+        if debug:
+            log.debug("[allowlist -ey] %s/%s -> %s", raw, base, _ey(base))
         return _ey(base)
-    if base.endswith(("ge", "ce", "ze", "se")) and len(base) > 2:
+    # 2) constrained sibilant endings
+    if len(base) > 2 and base.endswith(("ge", "ce", "ze", "se")):
+        if debug:
+            log.debug("[rule -ey] %s -> %s", base, _ey(base))
         return _ey(base)
+    if debug:
+        log.debug("[deny -ey] %s (raw=%s)", base, raw)
     return None
 
-
-def _default_suffix_strip(token: str) -> str:
-    """Strip trailing '-y' if present."""
-    return token[:-1] if token.endswith("y") else token
-
+# =============================================================================
+# Overrides (reverse) and minor normalizations
+# =============================================================================
 
 @lru_cache(maxsize=1)
 def _stripped_override_map() -> dict[str, str]:
-    """
-    Build a map once: stripped override token (without trailing 'y'/'ed') → override base.
-    Lazy to avoid work at import if table is large.
-    """
+    """Does: Map stripped override tokens (trim 'y'/'ed') to normalized bases. Returns: dict."""
     out: dict[str, str] = {}
     for k, v in RECOVER_BASE_OVERRIDES.items():
-        if k.endswith("y"):
-            stripped = k[:-1]
-        elif k.endswith("ed"):
-            stripped = k[:-2]
-        else:
-            stripped = k
+        stripped = k[:-1] if k.endswith("y") else k[:-2] if k.endswith("ed") else k
         out[stripped] = v
     return out
 
 
 def _apply_reverse_override(base: str, token: str, debug: bool = False) -> str:
-    """
-    Apply reverse override by matching a stripped override token to the given base.
-    Recognizes 'y' and 'ed' suffix forms. If match found, return override base.
-    """
+    """Does: Use stripped token to look up an override base, falling back to provided base. Returns: str."""
     m = _stripped_override_map()
-    return m.get(base, base)
+    key = token[:-1] if token.endswith("y") else token[:-2] if token.endswith("ed") else token
+    out = m.get(key, base)
+    if debug and out != base:
+        log.debug("[reverse override] %s (from %s) -> %s", base, token, out)
+    return out
 
 
 def _collapse_repeated_consonant(
@@ -123,12 +136,11 @@ def _collapse_repeated_consonant(
     known_tones: Set[str],
     debug: bool = False,
 ) -> str:
-    """
-    Remove a final doubled consonant (e.g., 'blurr' → 'blur') if the collapsed form
-    exists in known sets; otherwise keep original.
-    """
+    """Does: Collapse doubled final consonant if collapsed form exists in known sets. Returns: str."""
     if len(base) >= 3 and base[-1] == base[-2]:
         collapsed = base[:-1]
         if collapsed in known_modifiers or collapsed in known_tones:
+            if debug:
+                log.debug("[collapse double] %s -> %s", base, collapsed)
             return collapsed
     return base
