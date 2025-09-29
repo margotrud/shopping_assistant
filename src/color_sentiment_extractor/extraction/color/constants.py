@@ -5,6 +5,9 @@
 Does: Define global color-domain constants used across extraction and recovery.
 Return: Pure data structures (no side effects).
 """
+from typing import Set
+
+AUTONOMOUS_TONE_BAN: Set[str] = {"dust", "glow"}  # disallow as standalone tones
 
 # ── 1) Conflicts & blocking ──────────────────────────────────────────────────
 
