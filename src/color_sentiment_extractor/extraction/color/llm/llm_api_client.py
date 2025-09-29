@@ -2,22 +2,15 @@
 llm_api_client.py
 =================
 
-Handles prompt construction, request formatting, header setup, response parsing,
-and RGB value retrieval from a language model for descriptive color phrases.
-
-Returns:
-    RGB tuples extracted from model responses or None if failed.
-    Includes retry, caching, and debug logging support.
-
-Used by:
-    - Descriptive color resolution pipeline
-    - RGB extraction and caching logic
-
-Note:
-    This module is internal. The public API is re-exported via `llm/__init__.py`.
+Does: Build prompts, HTTP payloads and headers, call the OpenRouter chat API,
+      parse RGB tuples from replies, and optionally cache results (with retries).
+Returns: RGB tuples (R, G, B) or None on failure.
+Used by: Descriptive color resolution and RGB extraction/caching pipelines.
 """
 
-# ── Imports & Constants ──────────────────────────────────────────────────────
+from __future__ import annotations
+
+# ── Imports & Typing ─────────────────────────────────────────────────────────
 import logging
 import os
 import time
@@ -29,9 +22,10 @@ import requests
 
 from color_sentiment_extractor.extraction.color.utils import _parse_rgb_tuple
 
+# ── Logger ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
-# Prefer env overrides, keep safe defaults
+# ── Config (env-overridable) ─────────────────────────────────────────────────
 LLM_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 LLM_MODEL = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-7b-instruct")
 LLM_MAX_TOKENS = int(os.getenv("OPENROUTER_MAX_TOKENS", "100"))
@@ -46,48 +40,60 @@ BACKOFF_SPREAD = 0.6      # random spread added to multiplier
 # Single session for connection reuse
 _session = requests.Session()
 
+__all__ = [
+    "OpenRouterClient",
+    "has_api_key",
+    "get_llm_client",
+    "build_color_prompt",
+    "query_llm_for_rgb",
+]
+
 
 # ── Optional cache protocol (typing only) ────────────────────────────────────
 class RGBCache(Protocol):
-    """Protocol for RGB cache objects used with query_llm_for_rgb."""
+    """Does: Provide typed get/set for RGB cache used by query_llm_for_rgb.
+    Args: key: str for lookup; value: (int,int,int) to store.
+    Returns: get_rgb → Optional[Tuple[int,int,int]]; store_rgb → None.
+    """
 
     def get_rgb(self, key: str) -> Optional[Tuple[int, int, int]]: ...
     def store_rgb(self, key: str, value: Tuple[int, int, int]) -> None: ...
 
 
-# ── Minimal client for simplify() ────────────────────────────────────────────
+# ── Minimal client for phrase simplify() ─────────────────────────────────────
 class OpenRouterClient:
-    """Minimal client exposing `.simplify()` used by llm_recovery.
-
-    Args:
-        model (str): Model name (default: env OPENROUTER_MODEL or mistral-7b-instruct).
-        temperature (float): Sampling temperature for LLM requests.
-        max_tokens (int): Maximum token limit for completions.
-
-    Raises:
-        RuntimeError: If OPENROUTER_API_KEY is missing from environment.
+    """Does: Minimal OpenRouter client exposing simplify() for phrase cleanup.
+    Args: model: str; temperature: float; max_tokens: int.
+    Returns: Instance usable for simplify(); raises if API key is missing.
     """
 
     def __init__(self, model: str = LLM_MODEL, temperature: float = 0.2, max_tokens: int = 20):
-        self.api_key = os.getenv("OPENROUTER_API_KEY")
-        if not self.api_key:
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
             raise RuntimeError("OPENROUTER_API_KEY missing")
+        self.api_key = api_key
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
 
     def _headers(self) -> dict:
-        """Build HTTP headers for requests."""
+        """Does: Build authorization/content headers for OpenRouter calls.
+        Args: None.
+        Returns: Dict of HTTP headers.
+        """
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            # Uncomment for OpenRouter analytics:
+            # Optional OpenRouter analytics:
             # "HTTP-Referer": "http://localhost",
             # "X-Title": "shopping_assistant_V6",
         }
 
     def _post(self, messages: list[dict]) -> Optional[str]:
-        """Send POST request to the LLM API and return raw content string."""
+        """Does: POST a chat request and return the assistant content string.
+        Args: messages: list of chat dicts [{role, content}, ...].
+        Returns: Content string or None on error/empty.
+        """
         try:
             resp = _session.post(
                 LLM_API_URL,
@@ -112,13 +118,9 @@ class OpenRouterClient:
             return None
 
     def simplify(self, phrase: str) -> str:
-        """Simplify a color phrase to max 2 words (modifier+tone or tone only).
-
-        Args:
-            phrase (str): Descriptive phrase to normalize.
-
-        Returns:
-            str: Simplified phrase (≤2 words, lowercase). Empty string if uncertain.
+        """Does: Normalize a color phrase to ≤2 words (modifier+tone or tone).
+        Args: phrase: raw descriptive color phrase.
+        Returns: Simplified lowercase phrase or empty string if uncertain.
         """
         prompt = (
             "You normalize makeup color phrases. "
@@ -141,18 +143,17 @@ class OpenRouterClient:
 
 # ── Public helpers ───────────────────────────────────────────────────────────
 def has_api_key() -> bool:
-    """Check if OPENROUTER_API_KEY is available in environment."""
+    """Does: Check presence of OPENROUTER_API_KEY in environment.
+    Args: None.
+    Returns: True if available, else False.
+    """
     return bool(os.getenv("OPENROUTER_API_KEY"))
 
 
 def get_llm_client(debug: bool = False) -> Optional[OpenRouterClient]:
-    """Factory for OpenRouterClient if API key is available.
-
-    Args:
-        debug (bool): If True, logs presence of API key.
-
-    Returns:
-        OpenRouterClient | None: Client if available, else None.
+    """Does: Factory returning OpenRouterClient if API key is present.
+    Args: debug: if True, logs presence status.
+    Returns: OpenRouterClient or None.
     """
     ok = has_api_key()
     if debug:
@@ -162,13 +163,9 @@ def get_llm_client(debug: bool = False) -> Optional[OpenRouterClient]:
 
 # ── Prompt construction ──────────────────────────────────────────────────────
 def build_color_prompt(color_phrase: str) -> str:
-    """Build a descriptive prompt asking the LLM for an RGB tuple.
-
-    Args:
-        color_phrase (str): Descriptive phrase (e.g. "dusty rose").
-
-    Returns:
-        str: Formatted natural language prompt with strict tuple instructions.
+    """Does: Build an instruction asking the LLM for a strict RGB tuple.
+    Args: color_phrase: descriptive phrase (e.g., 'dusty rose').
+    Returns: Formatted prompt ending with an arrow for the answer.
     """
     return (
         f"What is the RGB color code for the descriptive phrase: '{color_phrase}'?\n"
@@ -181,15 +178,11 @@ def build_color_prompt(color_phrase: str) -> str:
     )
 
 
-# ── Payload & Headers ────────────────────────────────────────────────────────
-def build_llm_request_payload(color_phrase: str) -> dict:
-    """Wrap a color prompt into JSON payload for OpenRouter APIs.
-
-    Args:
-        color_phrase (str): Descriptive phrase.
-
-    Returns:
-        dict: Payload containing model, temperature, and message data.
+# ── Payload & Headers (RGB flow) ─────────────────────────────────────────────
+def _build_llm_request_payload(color_phrase: str) -> dict:
+    """Does: Wrap the color prompt into the JSON payload for OpenRouter.
+    Args: color_phrase: descriptive phrase.
+    Returns: Dict payload {model, max_tokens, temperature, messages}.
     """
     prompt = build_color_prompt(color_phrase)
     return {
@@ -200,14 +193,10 @@ def build_llm_request_payload(color_phrase: str) -> dict:
     }
 
 
-def build_llm_headers(api_key: str) -> dict:
-    """Build authorization headers for the LLM API call.
-
-    Args:
-        api_key (str): API key string.
-
-    Returns:
-        dict: HTTP headers for authentication and content type.
+def _build_llm_headers(api_key: str) -> dict:
+    """Does: Build auth/content headers for the RGB OpenRouter request.
+    Args: api_key: token string.
+    Returns: Dict of HTTP headers.
     """
     return {
         "Authorization": f"Bearer {api_key}",
@@ -215,33 +204,27 @@ def build_llm_headers(api_key: str) -> dict:
     }
 
 
-# ── LLM Query Interface ──────────────────────────────────────────────────────
+# ── RGB Query Interface ──────────────────────────────────────────────────────
 def _backoff_sleep(attempt: int) -> None:
-    """Sleep with exponential backoff and jitter."""
+    """Does: Sleep with exponential backoff + jitter based on attempt index.
+    Args: attempt: 0-based attempt number.
+    Returns: None.
+    """
     sleep_s = (BACKOFF_BASE + attempt) * (BACKOFF_MIN + random.random() * BACKOFF_SPREAD)
     time.sleep(sleep_s)
 
 
 def query_llm_for_rgb(
     color_phrase: str,
-    llm_client=None,
+    llm_client=None,  # kept for API compatibility
     cache: Optional[RGBCache] = None,
     retries: int = 2,
     debug: bool = False,
 ) -> Optional[Tuple[int, int, int]]:
-    """Send a color phrase to an LLM, parse RGB result, and cache response.
-
-    Args:
-        color_phrase (str): Descriptive phrase (e.g. "dusty rose").
-        llm_client: Optional LLM client (unused in current implementation).
-        cache (RGBCache | None): Optional cache interface.
-        retries (int): Number of retry attempts before failure.
-        debug (bool): Enable verbose logging.
-
-    Returns:
-        tuple[int, int, int] | None: (R, G, B) if successful, else None.
+    """Does: Query OpenRouter for an RGB tuple, parse, retry, and cache result.
+    Args: color_phrase: phrase; cache: RGBCache; retries: int; debug: bool.
+    Returns: (R, G, B) on success or None on failure.
     """
-    # normalize input
     color_phrase = (color_phrase or "").strip()
     if not color_phrase:
         return None
@@ -258,8 +241,8 @@ def query_llm_for_rgb(
                 logger.info("[CACHE HIT] '%s' → %s", color_phrase, cached)
             return cached
 
-    payload = build_llm_request_payload(color_phrase)
-    headers = build_llm_headers(api_key)
+    payload = _build_llm_request_payload(color_phrase)
+    headers = _build_llm_headers(api_key)
 
     for attempt in range(retries + 1):
         try:
@@ -268,7 +251,7 @@ def query_llm_for_rgb(
 
             response = _session.post(LLM_API_URL, headers=headers, json=payload, timeout=LLM_TIMEOUT)
 
-            # Rate-limit explicit
+            # Rate-limit handling
             if response.status_code == 429:
                 retry_after = float(response.headers.get("Retry-After", "0") or 0)
                 if debug:
@@ -297,14 +280,12 @@ def query_llm_for_rgb(
                     cache.store_rgb(color_phrase, rgb)
                 return rgb
 
-            # parsing failed → retry
             if debug:
                 logger.info("[PARSE FAIL] reply=%r", content)
 
         except Exception as e:
             logger.error("[EXCEPTION] LLM request failed on attempt %d: %s", attempt + 1, e)
 
-        # backoff before next attempt
         _backoff_sleep(attempt)
 
     if debug:
