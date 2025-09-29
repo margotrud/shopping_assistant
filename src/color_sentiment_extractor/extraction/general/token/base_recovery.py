@@ -3,28 +3,52 @@
 # Single entrypoint for base-form recovery across the project.
 # ──────────────────────────────────────────────────────────────
 
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import Iterable, Optional, Set
 
-from color_sentiment_extractor.extraction.color.constants import RECOVER_BASE_OVERRIDES, SEMANTIC_CONFLICTS, BLOCKED_TOKENS
-from color_sentiment_extractor.extraction.general.utils import load_config
-from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
-
-from color_sentiment_extractor.extraction.general.token.suffix import SUFFIX_RECOVERY_FUNCS
-from color_sentiment_extractor.extraction.general.fuzzy import fuzzy_match_token_safe
-
 import logging
+
+from color_sentiment_extractor.extraction.color.constants import (
+    RECOVER_BASE_OVERRIDES,
+    SEMANTIC_CONFLICTS,
+    BLOCKED_TOKENS,
+)
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+# ⚠️ Évite l’import lourd depuis color.vocab ; charge via config
+# from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
+
+# Registre suffixes (liste ordonnée) + dispatcher optionnel si dispo
+from color_sentiment_extractor.extraction.general.token.suffix.registry import (
+    SUFFIX_RECOVERY_FUNCS,
+)
+try:
+    # Optionnel : dispo si tu as ajouté le dispatcher suffix-aware
+    from color_sentiment_extractor.extraction.general.token.suffix.registry import (
+        recover_with_registry as _recover_with_registry,
+    )
+except Exception:  # pragma: no cover
+    _recover_with_registry = None  # type: ignore
+
+# Fuzzy util (assure-toi que __init__.py de fuzzy ré-exporte bien la fonction ;
+# sinon, utilise ...general.fuzzy.fuzzy_match: fuzzy_match_token_safe)
+from color_sentiment_extractor.extraction.general.fuzzy.fuzzy_match import (
+    fuzzy_match_token_safe,
+)
+
 logger = logging.getLogger(__name__)
 
 # Defaults
 _DEFAULT_FUZZY_THRESHOLD = 90
 
 # Vowel sets (module-level to avoid recreating)
-VOWELS_CONS = set("aeiou")   # y as consonant
-VOWELS_VOW  = set("aeiouy")  # y as vowel
+VOWELS_CONS: Set[str] = set("aeiou")   # y as consonant
+VOWELS_VOW:  Set[str] = set("aeiouy")  # y as vowel
 
-# Canonical sets
+# Canonical sets (chargées depuis la config validée)
 KNOWN_MODIFIERS: Set[str] = load_config("known_modifiers", mode="set")
+KNOWN_TONES:     Set[str] = load_config("known_tones",     mode="set")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -114,6 +138,7 @@ def _recover_base_cached_with_params(
         combined_known=set(km) | set(kt),
     )
 
+
 # ──────────────────────────────────────────────────────────────
 # Internal implementation
 # ──────────────────────────────────────────────────────────────
@@ -143,7 +168,30 @@ def _recover_base_impl(
         if debug: logger.debug(f"[override] '{raw}' → '{ov}'")
         return ov
 
-    # 2) Suffix recovery chain (ordered)
+    # 2) Suffix recovery chain (ordered) — with dispatcher si dispo
+    if _recover_with_registry:
+        try:
+            result = _recover_with_registry(raw, known_modifiers, known_tones, debug=False)  # type: ignore[misc]
+        except Exception:  # pragma: no cover
+            logger.exception("[suffix-dispatch] recover_with_registry crashed")
+            result = None
+        if result and result != raw:
+            chained = _recover_base_impl(
+                raw=result,
+                known_modifiers=known_modifiers,
+                known_tones=known_tones,
+                debug=False,
+                fuzzy_fallback=False,
+                fuzzy_threshold=fuzzy_threshold,
+                depth=depth + 1,
+                max_depth=max_depth,
+                combined_known=combined_known,
+            ) or result
+            if _is_known_token(chained, known_modifiers, known_tones):
+                if debug: logger.debug(f"[suffix ✓] '{raw}' → '{chained}'")
+                return chained
+
+    # Fallback: parcours de la liste ordonnée
     for func in SUFFIX_RECOVERY_FUNCS:
         if debug: logger.debug(f"[suffix] trying {getattr(func, '__name__', str(func))}('{raw}')")
         result = _call_suffix_func(func, raw, known_modifiers, known_tones, debug=False)
@@ -171,7 +219,7 @@ def _recover_base_impl(
                 candidate = chained or result
                 try:
                     fuzzy_mid = fuzzy_match_token_safe(candidate, combined_known, fuzzy_threshold, False)
-                except Exception:
+                except Exception:  # pragma: no cover
                     logger.exception(
                         f"[fuzzy_mid] crash on candidate={candidate!r} | known={len(combined_known)} | thr={fuzzy_threshold}"
                     )
@@ -202,7 +250,7 @@ def _recover_base_impl(
     if debug: logger.debug(f"[fuzzy] probing '{raw}' (threshold={local_threshold})")
     try:
         fuzzy_match = fuzzy_match_token_safe(raw, combined_known, local_threshold, False)
-    except Exception:
+    except Exception:  # pragma: no cover
         logger.exception(
             f"[fuzzy_match] crash on raw={raw!r} | known={len(combined_known)} | thr={local_threshold}"
         )
@@ -269,7 +317,14 @@ def _recover_base_impl(
 # ──────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────
-def _call_suffix_func(func, raw: str, known_modifiers: Set[str], known_tones: Set[str], debug: bool = False) -> Optional[str]:
+
+def _call_suffix_func(
+    func,
+    raw: str,
+    known_modifiers: Set[str],
+    known_tones: Set[str],
+    debug: bool = False,
+) -> Optional[str]:
     """Does: Call a suffix recovery func with flexible signature. Returns: Result or None."""
     try:
         return func(raw, known_modifiers, known_tones, debug=debug)

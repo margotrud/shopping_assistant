@@ -8,15 +8,16 @@ Provides:
 - has_token_overlap(a, b): quick overlap check between phrases
 
 Notes:
-- This version adds a time budget to the fallback splitter to prevent stalls
-  on non-splittable common words (e.g. 'love', 'hate').
-- It also adds an early trigram check to cheaply reject hopeless tokens.
+- Uses a monotonic clock for a reliable time budget.
+- Prebuilds a trigram index of the vocab for a fast early-reject.
+- Reuses a single sorted view of the normalized vocab across strategies.
 """
 
 from __future__ import annotations
 from typing import Callable, List, Optional, Set, Tuple
 from functools import lru_cache
 
+# Import via package since token/__init__.py re-exports normalize_token
 from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
@@ -34,31 +35,37 @@ def has_token_overlap(a: str, b: str) -> bool:
 
 
 def _norm(s: str) -> str:
+    # Compact normalization for glued-token logic
     return normalize_token(s, keep_hyphens=False).replace(" ", "")
 
 
 def _build_norm_vocab(vocab: Set[str]) -> Set[str]:
-    return {
-        _norm(v)
-        for v in (vocab or set())
-        if v
-    }
+    return {_norm(v) for v in (vocab or set()) if v}
 
 
-def _has_vocab_trigram(raw: str, norm_vocab: Set[str]) -> bool:
+def _vocab_trigram_index(vset: Set[str]) -> Set[str]:
     """
-    Cheap early filter: if no trigram of `raw` occurs in any vocab entry,
+    Build a set of all trigrams that appear in the normalized vocabulary.
+    """
+    idx: Set[str] = set()
+    for e in vset:
+        n = len(e)
+        if n >= 3:
+            idx.update(e[i:i+3] for i in range(n - 2))
+    return idx
+
+
+def _has_vocab_trigram(raw: str, vocab_tris: Set[str]) -> bool:
+    """
+    Cheap early filter: if no trigram of `raw` occurs in the vocab trigram set,
     splitting attempts are extremely unlikely to help. Avoids heavy work.
     """
-    if len(raw) < 3:
+    n = len(raw)
+    if n < 3:
         return False
-    tris = {raw[i:i+3] for i in range(len(raw) - 2)}
-    # Stop on first hit
-    for entry in norm_vocab:
-        e = entry  # already normalized
-        for tri in tris:
-            if tri in e:
-                return True
+    for i in range(n - 2):
+        if raw[i:i+3] in vocab_tris:
+            return True
     return False
 
 
@@ -73,7 +80,7 @@ def fallback_split_on_longest_substring(
     debug: bool = False,
     prefer_split_over_glued: bool = True,
     time_budget_sec: float = 0.040,     # ~40ms hard cap
-    min_part_len: int = 2,              # 2 for generic (color layer applies stricter guards)
+    min_part_len: int = 2,              # generic default; colors often use 3
 ) -> List[str]:
     """
     Prefer true segmentation (≥2 parts fully covering the token) over returning the glued word,
@@ -81,12 +88,16 @@ def fallback_split_on_longest_substring(
 
     Added:
       - time_budget_sec: stop searching when budget is exceeded (caps worst-cases)
-      - early trigram filter to quickly reject non-candidate tokens
+      - monotonic clock for reliable timing
+      - trigram index to quickly reject non-candidate tokens
+      - single sorted view of vocab reused across strategies
     """
 
-    # local time import (avoid name collision with datetime.time)
     import time as _time
-    t0 = _time.time()
+    t0 = _time.monotonic()
+
+    def over_budget() -> bool:
+        return (_time.monotonic() - t0) > time_budget_sec
 
     def d(*args):
         if debug:
@@ -98,25 +109,22 @@ def fallback_split_on_longest_substring(
         d("Empty after normalize → []")
         return []
 
-    # Normalize vocab once
+    # Normalize vocab once and prep shared structures
     norm_vocab = _build_norm_vocab(vocab)
-    d(f"VOCAB_SIZE={len(norm_vocab)}")
     if not norm_vocab:
         d("Empty vocab → []")
         return []
+    sorted_vocab = tuple(sorted(norm_vocab, key=len, reverse=True))
+    vocab_tris = _vocab_trigram_index(norm_vocab)
+    d(f"VOCAB_SIZE={len(norm_vocab)} TRI_COUNT={len(vocab_tris)}")
 
     # Early reject: no trigram overlap with vocab → bail early
-    if not _has_vocab_trigram(raw, norm_vocab):
+    if not _has_vocab_trigram(raw, vocab_tris):
         d("Early reject: no trigram overlap with vocab")
         return []
 
-    # Quick bailout helper
-    def over_budget() -> bool:
-        return (_time.time() - t0) > time_budget_sec
-
     # ---------- A) QUICK 2-WAY SPLIT PASS (prefer split over glued) ----------
-    # Try to split into exactly two vocab pieces (left, right). This is fast and
-    # gives the expected result for cases like 'lightmauve' → ['light','mauve'].
+    # Try to split into exactly two vocab pieces (left, right).
     if prefer_split_over_glued and not over_budget():
         best_two: Optional[List[str]] = None
         # i bounds: ensure both sides have reasonable length
@@ -139,19 +147,17 @@ def fallback_split_on_longest_substring(
     def greedy_segment(s: str) -> List[str]:
         parts: List[str] = []
         rest = s
-        sorted_vocab = sorted(norm_vocab, key=len, reverse=True)
         while rest:
             if over_budget():
                 return []
-            chosen: Optional[str] = None
-            for w in sorted_vocab:
-                if w and rest.startswith(w) and len(w) >= min_part_len:
-                    chosen = w
-                    d(f"GREEDY: rest={rest!r} picked={w!r}")
-                    break
+            chosen = next(
+                (w for w in sorted_vocab if len(w) >= min_part_len and rest.startswith(w)),
+                None,
+            )
             if not chosen:
                 d(f"GREEDY: dead-end at rest={rest!r}")
                 return []
+            d(f"GREEDY: rest={rest!r} picked={chosen!r}")
             parts.append(chosen)
             rest = rest[len(chosen):]
         d(f"GREEDY RESULT parts={parts}")
@@ -163,53 +169,36 @@ def fallback_split_on_longest_substring(
             d("ACCEPT GREEDY SPLIT")
             return parts
 
-    # ---------- C) BACKTRACKING (prefer split over glued at depth 0) ----------
-    # At depth 0, we skip a whole-word match to allow shorter prefixes to be explored.
-    sorted_vocab = tuple(sorted(norm_vocab, key=len, reverse=True))
-
+    # ---------- C) BACKTRACKING (prefer split over glued at top-level) ----------
     @lru_cache(None)
-    def backtrack(s: str, depth: int) -> Optional[List[str]]:
+    def backtrack(s: str, allow_whole: bool) -> Optional[List[str]]:
         if over_budget():
             return None
-        indent = "  " * depth
-        d(f"{indent}BT: enter s={s!r}, depth={depth}")
         if not s:
-            d(f"{indent}BT: success → []")
             return []
 
-        # First pass: try prefixes strictly shorter than s (avoid swallowing whole word)
+        # Try prefixes (longest-first by virtue of sorted_vocab)
         for w in sorted_vocab:
             if over_budget():
                 return None
-            if not w or len(w) < min_part_len:
+            if len(w) < min_part_len:
                 continue
-            if len(w) == len(s) and depth == 0:
-                # Skip whole-word at the top level to favor a true split
+            # At top-level, avoid swallowing the whole word to favor a true split
+            if len(w) == len(s) and not allow_whole:
                 continue
             if s.startswith(w):
-                d(f"{indent}BT: try prefix={w!r} on s={s!r}")
-                tail = s[len(w):]
-                rest = backtrack(tail, depth + 1)
+                rest = backtrack(s[len(w):], True)
                 if rest is not None:
-                    out = [w] + rest
-                    d(f"{indent}BT: success via {w!r} → {out}")
-                    return out
+                    return [w] + rest
 
-        # If nothing worked and we are not at top-level (or policy allows), try whole-word
-        for w in sorted_vocab:
-            if over_budget():
-                return None
-            if not w:
-                continue
-            if s.startswith(w) and len(w) == len(s):
-                d(f"{indent}BT: accept whole-word={w!r}")
-                return [w]
+        # If nothing worked and allowed, accept whole-word if it's in vocab
+        if allow_whole and s in norm_vocab:
+            return [s]
 
-        d(f"{indent}BT: dead-end for s={s!r}")
         return None
 
     if not over_budget():
-        bt = backtrack(raw, 0)
+        bt = backtrack(raw, False)
         if bt and "".join(bt) == raw and len(bt) >= 2:
             d("ACCEPT BACKTRACK SPLIT")
             return bt
@@ -221,10 +210,10 @@ def fallback_split_on_longest_substring(
 
     # ---------- E) Single longest-substring split ----------
     if not over_budget():
-        for sub in sorted(norm_vocab, key=len, reverse=True):
+        for sub in sorted_vocab:
             if over_budget():
                 break
-            if not sub or len(sub) < min_part_len:
+            if len(sub) < min_part_len:
                 continue
             idx = raw.find(sub)
             if idx != -1 and sub != raw:
@@ -243,7 +232,7 @@ def fallback_split_on_longest_substring(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Recursive splitter (kept as-is, optional improvement: min_part_len)
+# Recursive splitter (binary + prefix/suffix fallbacks)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def recursive_token_split(token: str, is_valid: Callable[[str], bool]) -> Optional[List[str]]:
