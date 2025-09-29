@@ -2,45 +2,71 @@
 rgb_distance.py
 ===============
 
-Functions for RGB distance comparison, similarity clustering,
-and fallback name matching based on perceptual closeness.
+Does: Compute color distances (sRGB/Lab), pick representative RGBs, and
+      match/lookup nearest named colors (CSS4/XKCD) with fuzzy helpers.
+Used By: Color similarity, clustering, and fallback name resolution.
+Returns: Distances (float), representative RGB (tuple[int,int,int]),
+         nearest/fuzzy color names.
 """
 
 from __future__ import annotations
 import logging
 import re
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple, Callable, Iterable
 
-# ✔ pull webcolor names via color package (re-exported by color/__init__.py)
-from color_sentiment_extractor.extraction.color import all_webcolor_names
-from color_sentiment_extractor.extraction.general.token import normalize_token
+# Public surface
+__all__ = [
+    "RGB",
+    "rgb_distance",
+    "lab_distance",
+    "is_within_rgb_margin",
+    "choose_representative_rgb",
+    "find_similar_color_names",
+    "nearest_color_name",
+    "fuzzy_match_rgb_from_known_colors",
+    "_parse_rgb_tuple",
+]
+__docformat__ = "google"
 
 logger = logging.getLogger(__name__)
 
 # ── Types ─────────────────────────────────────────────────────────────────────
 RGB = Tuple[int, int, int]
 
-# Helper: normalize access to webcolor name list (supports var or callable)
+# ✔ pull webcolor names via color package (re-exported by color/__init__.py)
+from color_sentiment_extractor.extraction.color import all_webcolor_names
+# Prefer explicit path unless token/__init__.py re-exports normalize_token
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+
+
 def _get_all_webcolor_names() -> List[str]:
+    """Does: Normalize access to webcolor name list (supports var or callable)."""
     try:
-        # If it's a function (callable), call it.
         if callable(all_webcolor_names):
             names = all_webcolor_names()
         else:
             names = all_webcolor_names  # type: ignore[assignment]
-        # Ensure list[str] with normalized spacing like elsewhere
         if isinstance(names, Iterable):
             return list(names)
     except Exception:
-        pass
+        logger.debug("Failed to read all_webcolor_names; returning empty list", exc_info=True)
     return []
+
 
 # =============================================================================
 # 1) CORE DISTANCES
 # =============================================================================
 
+def _validate_rgb(rgb: RGB) -> None:
+    r, g, b = rgb
+    if not (0 <= r <= 255 and 0 <= g <= 255 and 0 <= b <= 255):
+        raise ValueError(f"RGB out of bounds: {rgb}")
+
+
 def rgb_distance(rgb1: RGB, rgb2: RGB) -> float:
     """Does: Compute Euclidean distance in sRGB space."""
+    _validate_rgb(rgb1); _validate_rgb(rgb2)
     return sum((a - b) ** 2 for a, b in zip(rgb1, rgb2)) ** 0.5
 
 
@@ -49,8 +75,9 @@ def _srgb_to_linear(v: float) -> float:
     return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
 
 
+@lru_cache(maxsize=4096)
 def _rgb_to_xyz(rgb: RGB) -> Tuple[float, float, float]:
-    r, g, b = (_srgb_to_linear(c) for c in rgb)
+    r, g, b = (_srgb_to_linear(float(c)) for c in rgb)
     x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b
     y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b
     z = 0.0193339 * r + 0.1191920 * g + 0.9503041 * b
@@ -62,6 +89,7 @@ def _f_lab(t: float) -> float:
     return t ** (1 / 3) if t > d ** 3 else (t / (3 * d * d) + 4 / 29)
 
 
+@lru_cache(maxsize=4096)
 def _rgb_to_lab(rgb: RGB) -> Tuple[float, float, float]:
     Xn, Yn, Zn = 0.95047, 1.00000, 1.08883  # D65 white
     x, y, z = _rgb_to_xyz(rgb)
@@ -74,6 +102,7 @@ def _rgb_to_lab(rgb: RGB) -> Tuple[float, float, float]:
 
 def lab_distance(rgb1: RGB, rgb2: RGB) -> float:
     """Does: Compute ΔE76 (Lab distance) between two RGB colors."""
+    _validate_rgb(rgb1); _validate_rgb(rgb2)
     L1, a1, b1 = _rgb_to_lab(rgb1)
     L2, a2, b2 = _rgb_to_lab(rgb2)
     return ((L1 - L2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2) ** 0.5
@@ -108,16 +137,21 @@ def choose_representative_rgb(
 # 3) NAMED COLOR MAPS (lazy import)
 # =============================================================================
 
+@lru_cache(maxsize=1)
 def _get_named_color_map() -> Dict[str, RGB]:
     """Does: Merge CSS4 and XKCD color dicts into {name: RGB} with lazy import."""
     from matplotlib.colors import CSS4_COLORS, XKCD_COLORS
     from webcolors import hex_to_rgb
 
     named: Dict[str, RGB] = {}
-    for name, hx in CSS4_COLORS.items():
-        named[normalize_token(name).replace("-", " ")] = tuple(hex_to_rgb(hx))  # type: ignore
-    for name, hx in XKCD_COLORS.items():
-        key = normalize_token(name.replace("xkcd:", "")).replace("-", " ")
+    # CSS4: keys have no spaces; normalize by stripping spaces/hyphens from our key,
+    # but store a nice readable key with spaces for downstream fuzzy use.
+    for css_name, hx in CSS4_COLORS.items():
+        pretty = normalize_token(css_name).replace("-", " ")
+        named[pretty] = tuple(hex_to_rgb(hx))  # type: ignore
+    # XKCD: keys like 'xkcd:acid green'
+    for xkcd_name, hx in XKCD_COLORS.items():
+        key = normalize_token(xkcd_name.replace("xkcd:", "")).replace("-", " ")
         named.setdefault(key, tuple(hex_to_rgb(hx)))  # type: ignore
     return named
 
@@ -173,23 +207,26 @@ def _try_simplified_match(name: str, debug: bool = False) -> Optional[RGB]:
     from matplotlib.colors import CSS4_COLORS, XKCD_COLORS
     from webcolors import hex_to_rgb
 
-    key = normalize_token(name, keep_hyphens=True).replace("-", " ")
+    # Normalize input once
+    key = normalize_token(name, keep_hyphens=True)
+    key_spaces = key.replace("-", " ")
+    css_key = key_spaces.replace(" ", "")  # CSS4 has no spaces/hyphens
 
-    if key in CSS4_COLORS:
-        hx = CSS4_COLORS[key]
+    if css_key in CSS4_COLORS:
+        hx = CSS4_COLORS[css_key]
         if debug:
-            print(f"[🎨 CSS4 MATCH] '{key}' → {hx}")
+            print(f"[🎨 CSS4 MATCH] '{css_key}' → {hx}")
         return tuple(hex_to_rgb(hx))  # type: ignore
 
-    xkcd_key = f"xkcd:{key}"
+    xkcd_key = f"xkcd:{key_spaces}"
     if xkcd_key in XKCD_COLORS:
         hx = XKCD_COLORS[xkcd_key]
         if debug:
-            print(f"[🎨 XKCD MATCH] '{key}' → {hx}")
+            print(f"[🎨 XKCD MATCH] '{xkcd_key}' → {hx}")
         return tuple(hex_to_rgb(hx))  # type: ignore
 
     if debug:
-        print(f"[🕵️‍♀️ NOT FOUND] '{key}' not in XKCD or CSS4")
+        print(f"[🕵️‍♀️ NOT FOUND] '{name}' not in XKCD or CSS4")
     return None
 
 

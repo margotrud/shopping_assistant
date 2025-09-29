@@ -1,9 +1,9 @@
 """
-utils
-=====
+utils package
+=============
 
-Shared utilities for color distance, clustering, and name resolution.
-Re-exports main functions from `rgb_distance` for convenient imports.
+Does: Provide general utilities for normalization, distance calculations,
+      config loading, and shared helpers across extraction modules.
 """
 
 from .rgb_distance import (
@@ -14,7 +14,6 @@ from .rgb_distance import (
     find_similar_color_names,
     nearest_color_name,
     fuzzy_match_rgb_from_known_colors,
-    _try_simplified_match,
     _parse_rgb_tuple,
 )
 
@@ -26,6 +25,7 @@ __all__ = [
     "find_similar_color_names",
     "nearest_color_name",
     "fuzzy_match_rgb_from_known_colors",
-    "_try_simplified_match",
     "_parse_rgb_tuple",
 ]
+
+__docformat__ = "google"
