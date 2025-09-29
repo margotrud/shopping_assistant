@@ -20,8 +20,8 @@ from color_sentiment_extractor.extraction.general.fuzzy import (
 )
 
 
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-from color_sentiment_extractor.extraction.general.token.normalize import (
+from color_sentiment_extractor.extraction.general.utils import load_config
+from color_sentiment_extractor.extraction.general.token import (
     normalize_token,
     get_tokens_and_counts,
 )

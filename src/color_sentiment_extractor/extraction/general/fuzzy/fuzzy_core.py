@@ -16,7 +16,7 @@ from color_sentiment_extractor.extraction.general.fuzzy import (
     fuzzy_token_score,
     is_negation_conflict,
 )
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
 # ─────────────────────────────────────────────────────────────

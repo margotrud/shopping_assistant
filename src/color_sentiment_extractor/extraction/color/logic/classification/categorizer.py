@@ -16,8 +16,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Dict, List, Set, Tuple, Iterable
 
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token import recover_base, normalize_token
 from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS  # via color/__init__.py
 
 

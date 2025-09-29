@@ -15,15 +15,12 @@ from __future__ import annotations
 from typing import List, Set, Tuple, Dict, Optional, Union, Mapping, TypedDict
 from statistics import median
 
-from color_sentiment_extractor.extraction.color.logic.pipelines.phrase_pipeline import (
-    aggregate_color_phrase_results,
+from color_sentiment_extractor.extraction.color.logic import (
+    aggregate_color_phrase_results, format_tone_modifier_mappings
 )
-from color_sentiment_extractor.extraction.color.utils.rgb_distance import (
+from color_sentiment_extractor.extraction.color.utils import (
     choose_representative_rgb,
     rgb_distance,
-)
-from color_sentiment_extractor.extraction.color.logic.classification.categorizer import (
-    format_tone_modifier_mappings,
 )
 
 # Fallback threshold if dispersion-based estimate is not applicable

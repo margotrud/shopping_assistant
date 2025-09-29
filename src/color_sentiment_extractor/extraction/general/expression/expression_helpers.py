@@ -25,12 +25,12 @@ from color_sentiment_extractor.extraction.color.constants import (
     EXPRESSION_SUPPRESSION_RULES,
     SEMANTIC_CONFLICTS,
 )
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-from color_sentiment_extractor.extraction.general.fuzzy.expression_match import (
+from color_sentiment_extractor.extraction.general.utils import load_config
+from color_sentiment_extractor.extraction.general.token import (normalize_token,
+recover_base)
+from color_sentiment_extractor.extraction.general.fuzzy import (
     match_expression_aliases,
 )
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 
 
 # Chargements config (versions “validation” et “raw”)

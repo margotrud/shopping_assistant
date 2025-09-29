@@ -10,18 +10,18 @@ from color_sentiment_extractor.extraction.color.vocab import (
     all_webcolor_names,
     known_tones as _known_tones,
 )
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.utils import load_config
 from typing import Set, Tuple, Optional, List, Dict
 
 known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
 known_tones: Set[str] = set(_known_tones or [])
 
 # ── Pipelines / LLM client ───────────────────────────────────────────────────
-from color_sentiment_extractor.extraction.color.logic.color_pipeline import (
+from color_sentiment_extractor.extraction.color.logic import (
     aggregate_color_phrase_results,
 )
 from color_sentiment_extractor.extraction.color.llm.llm_api_client import get_llm_client
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+from color_sentiment_extractor.extraction.general.token import recover_base
 
 # ── RGB utils ────────────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color.utils.rgb_distance import (

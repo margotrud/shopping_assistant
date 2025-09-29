@@ -11,19 +11,19 @@ from typing import FrozenSet, List, Optional, Set
 # ⬇️ constants via color package
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS
 
-from color_sentiment_extractor.extraction.general.token.base_recovery import (
+from color_sentiment_extractor.extraction.general.token import (
     _recover_base_cached_with_params,
     recover_base,
 )
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-from color_sentiment_extractor.extraction.general.token.split.split_core import (
+from color_sentiment_extractor.extraction.general.token import normalize_token
+from color_sentiment_extractor.extraction.general.token.split import (
     fallback_split_on_longest_substring,
 )
-from color_sentiment_extractor.extraction.general.token.suffix.recovery import (
+from color_sentiment_extractor.extraction.general.token.suffix import (
     build_augmented_suffix_vocab,
     is_suffix_variant,
 )
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.utils import load_config
 
 logger = logging.getLogger(__name__)
 

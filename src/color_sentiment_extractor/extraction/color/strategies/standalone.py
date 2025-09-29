@@ -3,9 +3,9 @@
 # ──────────────────────────────────────────────────────────────
 
 from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
-from color_sentiment_extractor.extraction.color.recovery.llm_recovery import _extract_filtered_tokens
-from color_sentiment_extractor.extraction.general.expression.expression_helpers import _inject_expression_modifiers
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.color.recovery import _extract_filtered_tokens
+from color_sentiment_extractor.extraction.general.expression import _inject_expression_modifiers
+from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
 # ──────────────────────────────────────────────────────────────

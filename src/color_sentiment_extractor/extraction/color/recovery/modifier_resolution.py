@@ -18,12 +18,9 @@ from color_sentiment_extractor.extraction.color import (
     BLOCKED_TOKENS,
     RECOVER_BASE_OVERRIDES,
 )
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
-from color_sentiment_extractor.extraction.general.token.normalize import (
-    singularize,
-    normalize_token,
-)
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.token import (recover_base,
+                                                singularize, normalize_token)
+
 
 logger = logging.getLogger(__name__)
 

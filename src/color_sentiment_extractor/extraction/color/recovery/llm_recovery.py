@@ -6,11 +6,9 @@ import re
 from typing import Optional, Set
 
 from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
-from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
-    resolve_modifier_token,
-)
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.color.recovery import resolve_modifier_token
+
+from color_sentiment_extractor.extraction.general.token import recover_base, normalize_token
 
 logger = logging.getLogger(__name__)
 

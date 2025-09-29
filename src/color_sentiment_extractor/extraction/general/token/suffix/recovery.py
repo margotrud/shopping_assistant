@@ -1,7 +1,7 @@
 from typing import Optional, Set
 from color_sentiment_extractor.extraction.color.vocab import all_webcolor_names, known_tones
 from color_sentiment_extractor.extraction.color.constants import RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST
-from color_sentiment_extractor.extraction.color.suffix.rules import build_y_variant, build_ey_variant, is_cvc_ending
+from color_sentiment_extractor.extraction.color.suffix import build_y_variant, build_ey_variant, is_cvc_ending
 def build_augmented_suffix_vocab(
     known_tokens: set[str],
     known_modifiers: set[str],

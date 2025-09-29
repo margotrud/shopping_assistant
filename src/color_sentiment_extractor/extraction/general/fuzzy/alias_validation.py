@@ -16,15 +16,15 @@ from typing import List, Set
 from rapidfuzz import fuzz as fuzz  # drop-in pour remplacer fuzzywuzzy
 
 from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.utils import load_config
 from color_sentiment_extractor.extraction.general.fuzzy import (
     is_exact_match,
     rhyming_conflict,
     fuzzy_token_overlap_count,
 )
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-from color_sentiment_extractor.extraction.color.recovery.fuzzy_recovery import is_suffix_root_match
+from color_sentiment_extractor.extraction.general.token import (recover_base,
+                                                                normalize_token)
+from color_sentiment_extractor.extraction.color.recovery import is_suffix_root_match
 
 
 # ─────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Optional, Set, Iterable
 
 from nltk.corpus import wordnet
-from ..token.normalize import normalize_token  # import relatif: general/utils -> general/token/normalize.py
+from src.color_sentiment_extractor.extraction.general.token import normalize_token  # import relatif: general/utils -> general/token/normalize.py
 
 
 

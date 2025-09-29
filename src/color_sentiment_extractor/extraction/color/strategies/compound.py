@@ -40,29 +40,25 @@ from color_sentiment_extractor.extraction.color import (
     SEMANTIC_CONFLICTS,
     COSMETIC_NOUNS,
 )
-from color_sentiment_extractor.extraction.color.recovery.llm_recovery import (
-    _attempt_simplify_token,
-)
-from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
+
+from color_sentiment_extractor.extraction.color.recovery import (
     resolve_modifier_token,
     match_suffix_fallback,
     is_blocked_modifier_tone_pair,
     is_known_tone,
+    _attempt_simplify_token
 )
-from color_sentiment_extractor.extraction.color.token.split import (
+from color_sentiment_extractor.extraction.color.token import (
     split_tokens_to_parts,
     split_glued_tokens,
 )
-from color_sentiment_extractor.extraction.color.suffix.rules import build_y_variant
+from color_sentiment_extractor.extraction.color.suffix import build_y_variant
 
-from color_sentiment_extractor.extraction.general.token.base_recovery import (
-    recover_base,
+from color_sentiment_extractor.extraction.general.token import (
+    recover_base, singularize, normalize_token
 )
-from color_sentiment_extractor.extraction.general.token.normalize import (
-    singularize,
-    normalize_token,
-)
-from color_sentiment_extractor.extraction.general.token.suffix.recovery import (
+
+from color_sentiment_extractor.extraction.general.token.suffix import (
     build_augmented_suffix_vocab,
 )
 

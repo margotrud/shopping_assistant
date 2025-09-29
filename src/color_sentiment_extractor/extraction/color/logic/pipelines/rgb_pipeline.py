@@ -27,22 +27,21 @@ try:
 except Exception:  # pragma: no cover
     from fuzzywuzzy import fuzz  # type: ignore
 
-# ✅ simplified via color/__init__.py re-exports
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
-# ✅ simplified via llm/__init__.py
 from color_sentiment_extractor.extraction.color.llm import query_llm_for_rgb
-from color_sentiment_extractor.extraction.color.recovery.llm_recovery import (
+from color_sentiment_extractor.extraction.color.recovery import (
     simplify_color_description_with_llm,
     simplify_phrase_if_needed,
 )
-# ✅ simplified via utils/__init__.py re-exports
+from color_sentiment_extractor.extraction.color.suffix import build_y_variant
 from color_sentiment_extractor.extraction.color.utils import (
     fuzzy_match_rgb_from_known_colors,
     _try_simplified_match,
 )
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
-from color_sentiment_extractor.extraction.color.suffix.rules import build_y_variant
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token import (
+    recover_base, normalize_token
+)
+
 
 logger = logging.getLogger(__name__)
 

@@ -6,13 +6,11 @@ import logging
 from functools import lru_cache
 from typing import Optional, Set
 
-# ✅ simplified import via color/__init__.py
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
 
-from color_sentiment_extractor.extraction.general.fuzzy.scoring import rhyming_conflict
-from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.fuzzy import rhyming_conflict
+from color_sentiment_extractor.extraction.general.token import recover_base, normalize_token
+from color_sentiment_extractor.extraction.general.utils import load_config
 
 logger = logging.getLogger(__name__)
 

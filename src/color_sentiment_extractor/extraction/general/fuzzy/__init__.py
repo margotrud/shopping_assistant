@@ -34,6 +34,10 @@ from .conflict_rules import (
 from .alias_validation import (
    _handle_multiword_alias, is_valid_singleword_alias
 )
+
+from .expression_match import (
+   cached_match_expression_aliases, match_expression_aliases
+)
 __all__ = [
     "is_exact_match",
     "is_strong_fuzzy_match",
@@ -47,5 +51,7 @@ __all__ = [
     "fuzzy_token_overlap_count",
     "is_negation_conflict",
     "_handle_multiword_alias",
-    "is_valid_singleword_alias"
+    "is_valid_singleword_alias",
+    "cached_match_expression_aliases",
+    "match_expression_aliases"
 ]

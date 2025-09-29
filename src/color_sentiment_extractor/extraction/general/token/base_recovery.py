@@ -7,11 +7,11 @@ from functools import lru_cache
 from typing import Iterable, Optional, Set
 
 from color_sentiment_extractor.extraction.color.constants import RECOVER_BASE_OVERRIDES, SEMANTIC_CONFLICTS, BLOCKED_TOKENS
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.general.utils import load_config
 from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
 
-from color_sentiment_extractor.extraction.general.token.suffix.registry import SUFFIX_RECOVERY_FUNCS
-from color_sentiment_extractor.extraction.general.fuzzy.fuzzy_core import fuzzy_match_token_safe
+from color_sentiment_extractor.extraction.general.token.suffix import SUFFIX_RECOVERY_FUNCS
+from color_sentiment_extractor.extraction.general.fuzzy import fuzzy_match_token_safe
 
 import logging
 logger = logging.getLogger(__name__)

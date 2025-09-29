@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple, Callable, Iterable
 
 # ✔ pull webcolor names via color package (re-exported by color/__init__.py)
 from color_sentiment_extractor.extraction.color import all_webcolor_names
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token
 
 logger = logging.getLogger(__name__)
 

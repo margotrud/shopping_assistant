@@ -5,6 +5,7 @@ from .expression_helpers import (
     get_matching_expression_tags_cached,
     get_all_trigger_tokens,
     get_glued_token_vocabulary,
+    _inject_expression_modifiers,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "get_matching_expression_tags_cached",
     "get_all_trigger_tokens",
     "get_glued_token_vocabulary",
+    "_inject_expression_modifiers",
 ]

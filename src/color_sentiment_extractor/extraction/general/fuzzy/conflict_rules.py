@@ -9,7 +9,7 @@ Covers negation (e.g. 'no shimmer') and substring embedding.
 from __future__ import annotations
 import re
 
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
 # ─────────────────────────────────────────────────────────────

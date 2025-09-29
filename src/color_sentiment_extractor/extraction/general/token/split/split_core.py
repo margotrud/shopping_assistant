@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Callable, List, Optional, Set, Tuple
 from functools import lru_cache
 
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
 # ─────────────────────────────────────────────────────────────────────────────
