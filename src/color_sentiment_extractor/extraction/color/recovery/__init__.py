@@ -30,6 +30,11 @@ from .modifier_resolution import (
     is_modifier_compound_conflict
 )
 
+from.llm_recovery import (
+    _attempt_simplify_token,
+    _extract_filtered_tokens
+)
+
 # ── Public API ────────────────────────────────────────────────────────────────
 __all__ = [
     "is_suffix_root_match",
@@ -41,5 +46,7 @@ __all__ = [
     "is_blocked_modifier_tone_pair",
     "is_known_tone",
     "recover_y_with_fallback",
-    "is_modifier_compound_conflict"
+    "is_modifier_compound_conflict",
+    "_attempt_simplify_token",
+    "_extract_filtered_tokens"
 ]

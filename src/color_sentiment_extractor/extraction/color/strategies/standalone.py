@@ -1,150 +1,180 @@
-# ──────────────────────────────────────────────────────────────
-# 1. Imports
-# ──────────────────────────────────────────────────────────────
+# src/color_sentiment_extractor/extraction/color/strategies/standalone.py
+from __future__ import annotations
 
-from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
+"""
+standalone.py
+
+Does: Extract standalone color terms (tones/modifiers) using strict token matching plus expression-based modifier injection, with rule/LLM filtering and final merge.
+Returns: set[str] of normalized standalone terms; helpers for tone-only extraction and safe injection/capping.
+Used by: Color phrase extraction pipelines; pre-compound enrichment and downstream RGB routing.
+"""
+
+from typing import Iterable, List, Set, Dict, Optional
+import logging
+
+from spacy.tokens import Token
+
+# Public surface
+__all__ = [
+    "extract_lone_tones",
+    "extract_standalone_phrases",
+]
+
+__docformat__ = "google"
+
+log = logging.getLogger(__name__)
+
+# ── Domain imports ───────────────────────────────────────────────────────────
+from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
 from color_sentiment_extractor.extraction.color.recovery import _extract_filtered_tokens
 from color_sentiment_extractor.extraction.general.expression import _inject_expression_modifiers
 from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
 # ──────────────────────────────────────────────────────────────
-# 2. Tone-only extraction (strict, no LLM)
+# 1) Tone-only extraction (strict, no LLM)
 # ──────────────────────────────────────────────────────────────
-
-def extract_lone_tones(tokens, known_tones, debug=False):
-    """
-       Does: Extracts standalone tone tokens found directly in the input token stream.
-             Skips cosmetic nouns and matches only tokens present in the known tone set.
-
-       Returns: Set of normalized tone tokens found in input.
-       """
-    matches = set()
+def extract_lone_tones(
+    tokens: Iterable[Token],
+    known_tones: Set[str],
+    debug: bool = False,
+) -> Set[str]:
+    """Extract strict standalone tones present in `known_tones`, skipping cosmetic nouns."""
+    matches: Set[str] = set()
     for tok in tokens:
         raw = normalize_token(tok.text, keep_hyphens=True)
         if raw in COSMETIC_NOUNS:
             if debug:
-                print(f"[⛔ COSMETIC BLOCK] '{raw}' blocked")
+                log.debug("[⛔ COSMETIC BLOCK] '%s' blocked", raw)
             continue
         if raw in known_tones:
             matches.add(raw)
             if debug:
-                print(f"[🎯 LONE TONE] Found '{raw}'")
+                log.debug("[🎯 LONE TONE] Found '%s'", raw)
     return matches
 
 
 # ──────────────────────────────────────────────────────────────
-# 3. Injection gating/capping helper
+# 2) Injection gating/capping helper
 # ──────────────────────────────────────────────────────────────
-
-def _gate_and_cap_injection(tokens, expression_map, known_modifiers, injected, max_injected=5, debug=False):
+def _gate_and_cap_injection(
+    tokens: Iterable[Token],
+    expression_map: Dict[str, List[str]],
+    known_modifiers: Set[str],
+    injected: Optional[List[str]],
+    max_injected: int = 5,
+    debug: bool = False,
+) -> List[str]:
     """
-    Garde uniquement les modificateurs injectés qui sont:
-      - réellement déclenchés par un alias présent dans les tokens,
-      - connus dans known_modifiers,
-      - non déjà présents dans l'entrée,
-    puis limite à max_injected (ordre de rencontre des alias).
+    Keep only modifiers that:
+      • are triggered by an alias actually present in tokens,
+      • belong to known_modifiers,
+      • are not already present in the input.
+    Then cap to `max_injected` in order of first alias appearance.
     """
-    present = [normalize_token(t.text, keep_hyphens=True) for t in tokens]
-    present_set = set(present)
-    allowed = []
-    seen = set()
+    present: List[str] = [normalize_token(t.text, keep_hyphens=True) for t in tokens]
+    present_set: Set[str] = set(present)
 
-    # on déroule les alias présents dans l'ordre d'apparition
+    allowed: List[str] = []
+    seen: Set[str] = set()
+
+    # Iterate aliases in order of appearance; deterministic and stable
     for alias in present:
-        exprs = expression_map.get(alias, [])
-        for m in exprs:
+        for m in expression_map.get(alias, []):
             if m in known_modifiers and m not in present_set and m not in seen:
                 seen.add(m)
                 allowed.append(m)
                 if len(allowed) >= max_injected:
                     if debug:
-                        print(f"[🔒 INJECTION CAPPED] {len(allowed)} terms kept")
+                        log.debug("[🔒 INJECTION CAPPED] %d terms kept", len(allowed))
+                    # Respect the cap immediately
                     return allowed
 
-    # intersect avec la liste “injected” originale pour ne pas surprendre l’ordre
+    # If we had a precomputed injected list, intersect while preserving its order
     if injected:
         allowed_set = set(allowed)
         ordered_intersection = [m for m in injected if m in allowed_set]
         if debug:
-            print(f"[🧰 INJECTION GATED] kept={ordered_intersection}")
+            log.debug("[🧰 INJECTION GATED] kept=%s", ordered_intersection)
         return ordered_intersection[:max_injected]
 
     return allowed[:max_injected]
 
 
 # ──────────────────────────────────────────────────────────────
-# 4. Final combination helper
+# 3) Final combination helper
 # ──────────────────────────────────────────────────────────────
-
-def _finalize_standalone_phrases(injected, filtered, debug):
-    """
-    Does: Combines expression-injected modifiers with resolved token matches.
-    Returns: Unified set of standalone color terms.
-    """
+def _finalize_standalone_phrases(
+    injected: Optional[Iterable[str]],
+    filtered: Optional[Iterable[str]],
+    debug: bool = False,
+) -> Set[str]:
+    """Union of injected modifiers and filtered tokens, as a set."""
     injected_set = set(injected or [])
     filtered_set = set(filtered or [])
-    combined = injected_set | filtered_set  # set union
+    combined = injected_set | filtered_set
     if debug:
-        print(f"[✅ FINAL STANDALONE SET] {combined}")
+        log.debug("[✅ FINAL STANDALONE SET] %s", combined)
     return combined
 
 
 # ──────────────────────────────────────────────────────────────
-# 5. Main entrypoint for standalone phrase extraction
+# 4) Main entrypoint for standalone phrase extraction
 # ──────────────────────────────────────────────────────────────
-
-def extract_standalone_phrases(tokens, known_modifiers, known_tones, expression_map, llm_client, debug=True):
+def extract_standalone_phrases(
+    tokens: Iterable[Token],
+    known_modifiers: Set[str],
+    known_tones: Set[str],
+    expression_map: Dict[str, List[str]],
+    llm_client,
+    debug: bool = False,
+    *,
+    max_injected: int = 5,
+) -> Set[str]:
     """
-    Does: Extracts standalone tone or modifier tokens from input using three strategies:
-          - Expression-based modifier injection (gated + capped)
-          - Rule-based + LLM fallback resolution
-          - Final union and cleanup
-
-    Returns: Set of valid standalone modifiers and tones found in the input tokens.
+    Extract standalone tones/modifiers by:
+      1) Expression-based modifier injection (gated + capped),
+      2) Rule-based + LLM fallback token filtering,
+      3) Final union.
     """
+    # always materialize iterable → avoids consuming generators
+    tokens = list(tokens)
+
     if debug:
-        print("\n" + "="*70)
-        print("🎯 ENTER extract_standalone_phrases()")
-        print("="*70)
-        print("[🧪 INPUT TOKENS]")
-        for i, t in enumerate(tokens):
-            print(f"  {i:02d}: '{t.text}' (POS={t.pos_})")
-        print(f"[📚 #TOKENS] {len(tokens)} | #MODIFIERS: {len(known_modifiers)} | #TONES: {len(known_tones)}")
+        log.debug("=" * 70)
+        log.debug("🎯 ENTER extract_standalone_phrases()")
+        log.debug("=" * 70)
+        # Avoid dumping full token details in production logs
+        log.debug("[📚 STATS] #TOKENS=%d | #MODIFIERS=%d | #TONES=%d",
+                  sum(1 for _ in tokens), len(known_modifiers), len(known_tones))
 
-    # ─────────────────────────────────────────────
-    # 1. Expression-based modifier injection (gated + capped)
-    # ─────────────────────────────────────────────
-    injected_raw = _inject_expression_modifiers(tokens, known_modifiers, known_tones, expression_map, debug)
-    gated_injected = _gate_and_cap_injection(
+    # 1) Expression-based modifier injection (gated + capped)
+    injected_raw: List[str] = _inject_expression_modifiers(
+        tokens, known_modifiers, known_tones, expression_map, debug=debug
+    )
+    gated_injected: List[str] = _gate_and_cap_injection(
         tokens=tokens,
         expression_map=expression_map,
         known_modifiers=known_modifiers,
         injected=injected_raw,
-        max_injected=5,
-        debug=debug
+        max_injected=max_injected,
+        debug=debug,
     )
     if debug:
-        print("\n[🧬 EXPRESSION INJECTION] Modifiers from expression map (gated+cap):")
-        for term in sorted(gated_injected): print(f"  • {term}")
-        print(f"  → Total: {len(gated_injected)} terms")
+        log.debug("[🧬 EXPRESSION INJECTION] kept=%s (total=%d)",
+                  sorted(gated_injected), len(gated_injected))
 
-    # ─────────────────────────────────────────────
-    # 2. Rule + LLM fallback filtering
-    # ─────────────────────────────────────────────
-    filtered_terms = _extract_filtered_tokens(tokens, known_modifiers, known_tones, llm_client, debug)
+    # 2) Rule + LLM fallback filtering
+    filtered_terms: Set[str] = _extract_filtered_tokens(
+        tokens, known_modifiers, known_tones, llm_client, debug=debug
+    )
     if debug:
-        print("\n[🧠 RULE + LLM FILTERED TOKENS]")
-        for term in sorted(filtered_terms): print(f"  • {term}")
-        print(f"  → Total: {len(filtered_terms)} terms")
+        log.debug("[🧠 RULE + LLM FILTERED] kept=%s (total=%d)",
+                  sorted(filtered_terms), len(filtered_terms))
 
-    # ─────────────────────────────────────────────
-    # 3. Final combination + cleanup
-    # ─────────────────────────────────────────────
-    final = _finalize_standalone_phrases(gated_injected, filtered_terms, debug)
+    # 3) Final combination + cleanup
+    final: Set[str] = _finalize_standalone_phrases(gated_injected, filtered_terms, debug=debug)
     if debug:
-        print("\n[🏁 FINAL STANDALONE PHRASES]")
-        for term in sorted(final): print(f"  • {term}")
-        print(f"  ✅ Final count: {len(final)}")
+        log.debug("[🏁 FINAL STANDALONE PHRASES] total=%d", len(final))
 
     return final

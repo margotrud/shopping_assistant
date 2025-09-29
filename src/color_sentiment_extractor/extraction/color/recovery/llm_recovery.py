@@ -25,7 +25,9 @@ from color_sentiment_extractor.extraction.general.types import TokenLike
 # ── Public API ────────────────────────────────────────────────────────────────
 __all__ = [
     "simplify_phrase_if_needed",
-    "simplify_color_description_with_llm"
+    "simplify_color_description_with_llm",
+    "_attempt_simplify_token",
+    "_extract_filtered_tokens",
 ]
 
 from ..constants import AUTONOMOUS_TONE_BAN
