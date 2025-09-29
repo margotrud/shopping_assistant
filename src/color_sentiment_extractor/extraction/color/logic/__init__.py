@@ -1,26 +1,45 @@
 """
-logic package
-=============
+logic
+=====
 
-High-level orchestration layer for color sentiment extraction.
-
-Public API:
------------
-- process_color_phrase()         → normalize & resolve RGB for a phrase
-- extract_phrases_from_segment() → validated phrase extraction
-- aggregate_color_phrase_results() → aggregate tones, phrases, RGBs
-- build_tone_modifier_mappings() → tone–modifier bidirectional mapping
-- format_tone_modifier_mappings() → formatted dict view
+Does: Aggregate high-level color logic: phrase extraction/validation, tone–modifier classification, and RGB orchestration.
+Returns: Public API re-exports for pipelines (phrase/RGB) and classification (mappings/formatting).
+Used By: app entrypoints, sentiment module, modifier–tone mapping, and end-user parsing flows.
 """
 
-from .pipelines.rgb_pipeline import process_color_phrase
-from .pipelines.phrase_pipeline import extract_phrases_from_segment, aggregate_color_phrase_results
-from .classification.categorizer import build_tone_modifier_mappings, format_tone_modifier_mappings
+from __future__ import annotations
+
+# ── Public API re-exports ─────────────────────────────────────────────────────
+# Pipelines (phrase extraction & RGB resolution)
+from .pipelines import (
+    extract_all_descriptive_color_phrases,
+    extract_phrases_from_segment,
+    process_segment_colors,
+    aggregate_color_phrase_results,
+    get_rgb_from_descriptive_color_llm_first,
+    resolve_rgb_with_llm,
+    process_color_phrase,
+)
+
+# Classification (tone↔modifier mappings)
+from .classification import (
+    build_tone_modifier_mappings,
+    format_tone_modifier_mappings,
+)
 
 __all__ = [
-    "process_color_phrase",
+    # Pipelines
+    "extract_all_descriptive_color_phrases",
     "extract_phrases_from_segment",
+    "process_segment_colors",
     "aggregate_color_phrase_results",
+    "get_rgb_from_descriptive_color_llm_first",
+    "resolve_rgb_with_llm",
+    "process_color_phrase",
+    # Classification
     "build_tone_modifier_mappings",
     "format_tone_modifier_mappings",
 ]
+
+# Optional: enforce a consistent docstring style for tooling
+__docformat__ = "google"
