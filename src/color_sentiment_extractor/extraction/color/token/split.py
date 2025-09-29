@@ -1,21 +1,30 @@
 # extraction/color/token/split.py
+"""
+token.split
+===========
+
+Does: Scinde des tokens collés/hyphénés en parties valides (suffix-aware), via
+      récupération de base stricte et budget-temps dur.
+Used By: Stratégies compound (adjacent/glued) et pipelines (décomposition mod+tone).
+Returns: split_glued_tokens() → List[str]; split_tokens_to_parts() → Optional[List[str]].
+"""
 
 from __future__ import annotations
 
+# ── Imports ──────────────────────────────────────────────────────────────
 import logging
 import re
-import time as _time  # alias pour éviter le shadowing
+import time as _time
 from functools import lru_cache
 from typing import FrozenSet, List, Optional, Set
 
-# ⬇️ constants via color package
+# Imports internes projet
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS
-
 from color_sentiment_extractor.extraction.general.token import (
     _recover_base_cached_with_params,
     recover_base,
+    normalize_token,
 )
-from color_sentiment_extractor.extraction.general.token import normalize_token
 from color_sentiment_extractor.extraction.general.token.split import (
     fallback_split_on_longest_substring,
 )
@@ -25,15 +34,24 @@ from color_sentiment_extractor.extraction.general.token.suffix import (
 )
 from color_sentiment_extractor.extraction.general.utils import load_config
 
+# ── Logger ───────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
 
+# ── Constantes locales ───────────────────────────────────────────────────
+MIN_PART_LEN_DEFAULT = 3
+TIME_BUDGET_DEFAULT = 0.050  # ~50ms par token
+MAX_FIRST_CUT_DEFAULT = 10
+
+
+# ── Accès config en cache ────────────────────────────────────────────────
 @lru_cache(maxsize=1)
 def _get_known_modifiers() -> FrozenSet[str]:
-    """Load known modifiers from config once (cached)."""
+    """Does: Charge les known_modifiers (config) une seule fois (cache). Returns: frozenset."""
     return frozenset(load_config("known_modifiers", mode="set"))
 
 
+# ── Splitter récursif (glued + suffix-aware) ─────────────────────────────
 def split_glued_tokens(
     token: str,
     known_tokens: Set[str],
@@ -41,13 +59,13 @@ def split_glued_tokens(
     debug: bool = False,
     vocab: Optional[Set[str]] = None,
     *,
-    min_part_len: int = 3,
-    max_first_cut: int = 10,
-    time_budget_sec: float = 0.050,  # ~50ms par token
+    min_part_len: int = MIN_PART_LEN_DEFAULT,
+    max_first_cut: int = MAX_FIRST_CUT_DEFAULT,
+    time_budget_sec: float = TIME_BUDGET_DEFAULT,
 ) -> List[str]:
     """
-    Recursively split a glued token into known parts (suffix-aware) with time budget and fallback.
-    Returns: list of valid parts or [] if none.
+    Does: Décompose récursivement un token collé en sous-parties valides, via vocab suffix-aware et budget-temps.
+    Returns: Liste de morceaux valides (≥1) ou [] si aucun découpage sûr.
     """
     t0 = _time.time()
     if known_modifiers is None:
@@ -55,7 +73,6 @@ def split_glued_tokens(
 
     if not token or not isinstance(token, str):
         return []
-
     if len(token) <= 2:
         if debug:
             logger.debug("[split] skip short token: %r", token)
@@ -66,15 +83,15 @@ def split_glued_tokens(
         if debug:
             logger.debug("[split] skip after normalize: %r -> %r", token, tok_norm)
         return []
-
     token = tok_norm
 
-    # Vocab étendu (tones + modifiers + variantes suffix)
+    # Vocab étendu (tones + modifers + variantes suffixées)
     if vocab is None:
         vocab = build_augmented_suffix_vocab(known_tokens, known_modifiers)
 
     @lru_cache(maxsize=2048)
     def is_valid_cached(t: str) -> bool:
+        t = normalize_token(t, keep_hyphens=False)
         return (
             t in vocab
             or is_suffix_variant(
@@ -87,7 +104,7 @@ def split_glued_tokens(
         )
 
     def _cut_range(s: str) -> range:
-        # borne haute sécurisée (au moins min_part_len+1 pour éviter range vide)
+        # borne haute sécurisée (≥ min_part_len+1 pour éviter range vide)
         upper = min(len(s), max_first_cut)
         upper = max(upper, min_part_len + 1)
         return range(min_part_len, upper)
@@ -97,6 +114,7 @@ def split_glued_tokens(
         # respect du budget temps
         if (_time.time() - t0) > time_budget_sec:
             return None
+
         # token entier valide ?
         if is_valid_cached(tok):
             return [tok]
@@ -109,7 +127,7 @@ def split_glued_tokens(
             if is_valid_cached(left) and is_valid_cached(right):
                 return [left, right]
 
-        # recherche récursive: choisir la meilleure décomposition
+        # recherche récursive: meilleure décomposition (maximise le nb de morceaux)
         best_split: Optional[List[str]] = None
         for i in _cut_range(tok):
             left, right = tok[:i], tok[i:]
@@ -130,9 +148,9 @@ def split_glued_tokens(
             logger.debug("[split] recursive OK %s in %.3fs for %r", parts, dt, token)
         return parts
 
-    # Fallback: longest substring match
+    # Fallback: longest-substring
     result = fallback_split_on_longest_substring(token, vocab, debug=False) or []
-    # On valide seulement si au moins un morceau existe réellement dans les vocabs de base
+    # Valide seulement si au moins un morceau ∈ vocabs de base
     if any(t in known_modifiers or t in known_tokens for t in result):
         if debug:
             dt = _time.time() - t0
@@ -146,18 +164,19 @@ def split_glued_tokens(
     return []
 
 
+# ── Splitter 2-parties (modifier + tone) strict ──────────────────────────
 def split_tokens_to_parts(
     token: str,
     known_tokens: Set[str],
     known_modifiers: Optional[Set[str]] = None,
     debug: bool = False,
     *,
-    min_part_len: int = 3,
-    time_budget_sec: float = 0.050,
+    min_part_len: int = MIN_PART_LEN_DEFAULT,
+    time_budget_sec: float = TIME_BUDGET_DEFAULT,
 ) -> Optional[List[str]]:
     """
-    Try a 2-part split (modifier + tone) via scoring + base recovery (no fuzzy) under time budget.
-    Returns: [left, right] if found, else None.
+    Does: Tente un split 2-parties (modifier, tone) avec récupération de base stricte (pas de fuzzy) et budget-temps.
+    Returns: [left, right] si confiant, sinon None.
     """
     t0 = _time.time()
     if known_modifiers is None:
@@ -174,7 +193,7 @@ def split_tokens_to_parts(
             logger.debug("[split2] skip after normalize: %r", token)
         return None
 
-    # évite de retravailler un token déjà connu
+    # évite de retravailler un token déjà connu comme tone
     if token in known_tokens:
         if debug:
             logger.debug("[split2] token already known: %r", token)
@@ -183,20 +202,25 @@ def split_tokens_to_parts(
     best_split: Optional[List[str]] = None
     best_score = -1
 
-    # Cas simple: 'xxx-yyy' (on accepte mod ou tone des deux côtés)
+    # Hyphens multiples: essaie toutes les coupes possibles
     if "-" in token:
-        left, right = token.split("-", 1)
-        l_ok = left in known_tokens or left in known_modifiers
-        r_ok = right in known_tokens or right in known_modifiers
-        if l_ok and r_ok:
-            if debug:
-                logger.debug("[HYPHEN SPLIT MATCH] %r + %r", left, right)
-            return [left, right]
+        hyph_parts = token.split("-")
+        if len(hyph_parts) >= 2:
+            for k in range(1, len(hyph_parts)):
+                left = "-".join(hyph_parts[:k])
+                right = "-".join(hyph_parts[k:])
+                l_ok = left in known_tokens or left in known_modifiers
+                r_ok = right in known_tokens or right in known_modifiers
+                if l_ok and r_ok:
+                    if debug:
+                        logger.debug("[HYPHEN SPLIT MATCH] %r + %r", left, right)
+                    return [left, right]
 
     if debug:
         logger.debug("[SPLIT2 START] Input: %r", token)
 
-    for i in range(min_part_len, max(min_part_len + 1, len(token)) - 1):
+    # Garantit deux côtés ≥ min_part_len
+    for i in range(min_part_len, len(token) - min_part_len + 1):
         if (_time.time() - t0) > time_budget_sec:
             if debug:
                 logger.debug("[split2] timeout budget reached")
@@ -229,7 +253,7 @@ def split_tokens_to_parts(
                 km=frozenset(known_modifiers),
                 kt=frozenset(known_tokens),
             )
-            # nettoyage chiffres
+            # nettoyage chiffres puis retry strict
             if not left_rec and any(ch.isdigit() for ch in left):
                 cleaned = re.sub(r"\d+", "", left)
                 if cleaned and cleaned != left:
@@ -243,7 +267,7 @@ def split_tokens_to_parts(
                     if debug:
                         logger.debug("[CLEANED LEFT] %r → %r → %r", left, cleaned, left_rec)
 
-            # garde qualité sur très courts segments
+            # garde qualité sur segments très courts
             if left_rec and len(left) < 4 and left_rec != left and left_rec not in known_tokens:
                 if debug:
                     logger.debug("[REJECT LEFT WEAK] %r → %r", left, left_rec)
@@ -322,3 +346,14 @@ def split_tokens_to_parts(
             logger.debug("[NO VALID SPLIT2] in %.3fs", dt)
 
     return best_split
+
+
+# ── Entry Point (optionnel) ──────────────────────────────────────────────
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logger.info("Demo split module: %s", __file__)
+    # Mini démo (remplacez par vos sets réels)
+    tones = {"rose", "beige", "blue", "navy"}
+    mods = {"dusty", "soft", "deep"}
+    print("glued:", split_glued_tokens("dustyrose", tones, mods, debug=True))
+    print("2-part:", split_tokens_to_parts("dustyrose", tones, mods, debug=True))
