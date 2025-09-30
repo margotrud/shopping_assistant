@@ -1,7 +1,15 @@
-# Chatbot/extraction/general/utils/log.py
+"""
+log.py
+
+Does: Lightweight debug logger controlled by CHATBOT_DEBUG_TOPICS (comma-sep or 'all').
+Returns: Prints timestamped lines with topic + level. Used across extraction/utils/tests.
+"""
+
 import os, sys
 from datetime import datetime
 from typing import Set, TextIO, Optional
+
+__all__ = ["debug", "reload_topics"]
 
 def _load_topics() -> Set[str]:
     raw = os.getenv("CHATBOT_DEBUG_TOPICS", "")
@@ -10,6 +18,7 @@ def _load_topics() -> Set[str]:
 _DEBUG_TOPICS = _load_topics()
 
 def reload_topics() -> None:
+    """Does: Reload topics from environment variable CHATBOT_DEBUG_TOPICS."""
     global _DEBUG_TOPICS
     _DEBUG_TOPICS = _load_topics()
 
@@ -18,13 +27,12 @@ def debug(
     topic: str = "extraction",
     *,
     level: str = "DEBUG",
-    stream: Optional[TextIO] = None,   # ⬅️ change ici
+    stream: Optional[TextIO] = None,
 ) -> None:
-    """
-    Does: Print a timestamped debug line with topic and level if enabled via CHATBOT_DEBUG_TOPICS ("topic1,topic2" or "all").
-    """
-    if stream is None:                  # ⬅️ resolve au moment de l'appel (compatible pytest)
+    """Does: Print a timestamped debug line with topic and level if enabled via CHATBOT_DEBUG_TOPICS."""
+    if stream is None:
         stream = sys.stderr
-    if not _DEBUG_TOPICS or "all" in _DEBUG_TOPICS or topic.lower() in _DEBUG_TOPICS:
-        ts = datetime.now().strftime("%H:%M:%S")
-        print(f"[{ts}] [{topic}][{level}] {msg}", file=stream)
+    topic_key = topic.lower().strip()
+    if not _DEBUG_TOPICS or "all" in _DEBUG_TOPICS or topic_key in _DEBUG_TOPICS:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{ts}] [{topic_key}][{level.upper()}] {msg}", file=stream)

@@ -1,14 +1,36 @@
+# Chatbot/extraction/general/utils/__init__.py
 """
-Utils package: exposes the public API for config loading and logging helpers.
-Import from here instead of submodules when possible:
-    from Chatbot.extraction.general.utils import load_config, debug
+utils
+
+Does: Provide config loading and lightweight debug logging utilities for the extraction stack.
+Returns: Public API via load_config/clear_config_cache and debug/reload_topics.
+Used by: Pipelines, vocab loaders, tests, and general utilities.
 """
 
+from __future__ import annotations
 
-from .load_config import load_config, clear_config_cache, DataDirNotFound, ConfigFileNotFound, ConfigParseError, ConfigTypeError
-from .log import debug, reload_topics
+from .load_config import (
+    load_config,
+    clear_config_cache,
+    DataDirNotFound,
+    ConfigFileNotFound,
+    ConfigParseError,
+    ConfigTypeError,
+)
+from .log import (
+    debug,
+    reload_topics,
+)
+
 __all__ = [
-    "load_config", "clear_config_cache",
-    "DataDirNotFound", "ConfigFileNotFound", "ConfigParseError", "ConfigTypeError",
-    "debug", "reload_topics",
+    # Config loading
+    "load_config",
+    "clear_config_cache",
+    "DataDirNotFound",
+    "ConfigFileNotFound",
+    "ConfigParseError",
+    "ConfigTypeError",
+    # Logging helpers
+    "debug",
+    "reload_topics",
 ]
