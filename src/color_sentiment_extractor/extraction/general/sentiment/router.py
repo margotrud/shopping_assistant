@@ -1,3 +1,6 @@
+# src/color_sentiment_extractor/extraction/general/sentiment/router.py
+from __future__ import annotations
+
 """
 sentiment_router.py
 ===================
@@ -10,66 +13,84 @@ Outputs:
 - base_rgb: Representative RGB triplet for this sentiment (or None)
 - threshold: RGB margin for inclusion
 """
-from __future__ import annotations
 
-from typing import List, Set, Tuple, Dict, Optional, Union, Mapping, TypedDict
+from typing import List, Set, Tuple, Dict, Optional, Mapping, TypedDict, Iterable, Callable
 from statistics import median
+import os
+import logging
 
 from color_sentiment_extractor.extraction.color.logic import (
-    aggregate_color_phrase_results, format_tone_modifier_mappings
+    aggregate_color_phrase_results,
+    format_tone_modifier_mappings,
 )
 from color_sentiment_extractor.extraction.color.utils import (
     choose_representative_rgb,
     rgb_distance,
 )
 
-# Fallback threshold if dispersion-based estimate is not applicable
-RGB_THRESHOLD: float = 60.0
+__all__ = ["build_color_sentiment_summary"]
+
+logger = logging.getLogger(__name__)
+
+# ── Types ────────────────────────────────────────────────────────────────────
+RGB = Tuple[int, int, int]
 
 class ColorSentimentSummary(TypedDict):
     matched_color_names: List[str]
-    base_rgb: Optional[Tuple[int, int, int]]
+    base_rgb: Optional[RGB]
     threshold: float
 
+# ── ENV Config (tunable without code change) ─────────────────────────────────
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except Exception:
+        return default
 
-def _stable_sorted_phrases(items: List[str]) -> List[str]:
-    # Case-insensitive, accent/locale-agnostic enough for our tokens
-    return sorted({s.strip(): None for s in items if s and s.strip()}.keys(), key=lambda s: s.casefold())
+RGB_THRESHOLD_DEFAULT: float = _env_float("RGB_THRESHOLD_DEFAULT", 60.0)
+RGB_THRESHOLD_MIN: float = _env_float("RGB_THRESHOLD_MIN", 35.0)
+RGB_THRESHOLD_MAX: float = _env_float("RGB_THRESHOLD_MAX", 75.0)
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
+    """
+    Case-insensitive, whitespace-trimmed, duplicate-free ordering
+    suitable for our token set.
+    """
+    # Use set comprehension for clarity; casefold for stable ordering.
+    unique = {s.strip() for s in items if s and s.strip()}
+    return sorted(unique, key=str.casefold)
 
-def _estimate_threshold(base_rgb: Optional[Tuple[int, int, int]], rgb_map: Mapping[str, Tuple[int, int, int]]) -> float:
+def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> float:
     """
     Heuristic: if we have ≥2 colors, use median distance to base as threshold,
-    clamped to a reasonable band. Else fall back to RGB_THRESHOLD.
+    clamped to a reasonable band. Else fall back to RGB_THRESHOLD_DEFAULT.
     """
-    if not base_rgb:
-        return RGB_THRESHOLD
-    if not rgb_map:
-        return RGB_THRESHOLD
+    if not base_rgb or not rgb_map:
+        return RGB_THRESHOLD_DEFAULT
 
     distances: List[float] = []
-    for name, rgb in rgb_map.items():
+    for rgb in rgb_map.values():
         try:
             distances.append(float(rgb_distance(base_rgb, rgb)))
         except Exception:
-            # ignore malformed rgb tuples
+            # Ignore malformed rgb tuples
             continue
 
     if len(distances) < 2:
-        return RGB_THRESHOLD
+        return RGB_THRESHOLD_DEFAULT
 
     med = median(distances)
-    # Clamp between 35 and 75 to avoid overly tight/loose thresholds
-    return max(35.0, min(75.0, med))
+    return max(RGB_THRESHOLD_MIN, min(RGB_THRESHOLD_MAX, med))
 
-
+# ── Public API ────────────────────────────────────────────────────────────────
 def build_color_sentiment_summary(
     sentiment: str,
     segments: List[str],
     known_tones: Set[str],
     known_modifiers: Set[str],
-    rgb_map: Dict[str, Tuple[int, int, int]],
-    base_rgb_by_sentiment: Dict[str, Optional[Tuple[int, int, int]]],
+    rgb_map: Dict[str, RGB],
+    base_rgb_by_sentiment: Dict[str, Optional[RGB]],
     *,
     debug: bool = False,
 ) -> ColorSentimentSummary:
@@ -92,8 +113,9 @@ def build_color_sentiment_summary(
           "threshold": float
         }
     """
-    # Run phrase pipeline (list(...) to avoid passing dict_keys views downstream)
-    matched_tones, matched_phrases, local_rgb_map = aggregate_color_phrase_results(
+
+    # Run phrase pipeline (materialize keys list to avoid view issues downstream)
+    _matched_tones, matched_phrases, local_rgb_map = aggregate_color_phrase_results(
         segments=segments,
         known_modifiers=known_modifiers,
         all_webcolor_names=list(rgb_map.keys()),
@@ -108,16 +130,14 @@ def build_color_sentiment_summary(
 
     if debug:
         try:
-            # Optionally format for logs or downstream inspection
+            # Optionally format for logs or downstream inspection (side-effect only)
             format_tone_modifier_mappings(matched_phrases, known_tones, known_modifiers)
         except Exception:
             # Never let logging/introspection break the route
-            pass
+            logger.debug("format_tone_modifier_mappings failed; continuing.", exc_info=True)
 
-    # Choose base RGB from local extraction first
-    base_rgb = choose_representative_rgb(local_rgb_map) if local_rgb_map else None
-
-    # If nothing local, preserve any existing base set for this sentiment
+    # Choose base RGB from local extraction first; else keep prior for this sentiment
+    base_rgb: Optional[RGB] = choose_representative_rgb(local_rgb_map) if local_rgb_map else None
     if base_rgb is None:
         base_rgb = base_rgb_by_sentiment.get(sentiment)
 

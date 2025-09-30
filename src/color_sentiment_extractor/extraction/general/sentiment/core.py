@@ -1,7 +1,10 @@
+# src/color_sentiment_extractor/extraction/general/sentiment/core.py
+from __future__ import annotations
+
 """
 Sentiment Detection & Clause Splitting
 --------------------------------------
-Handles:
+Does:
 - Hybrid sentiment detection (VADER first, BART MNLI fallback)
 - Optional negation scope with negspaCy (NegEx) if available
 - Soft-negation override (e.g. "not too shiny")
@@ -9,15 +12,14 @@ Handles:
 - Single source of truth for BART candidate labels (no duplication)
 - Lazy-loading of heavy components (spaCy, VADER, BART)
 - Logging (no print), configurable VADER thresholds, LRU cache
-- High-level API: analyze_sentence_sentiment(sentence) → [{clause, polarity, separator}]
+- High-level API: analyze_sentence_sentiment(sentence) → list[ClauseResult]
 """
 
-from __future__ import annotations
-
-import re
 import logging
+import os
+import re
 from functools import lru_cache
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Literal, TypedDict, Any
 
 import spacy
 from transformers import pipeline
@@ -26,36 +28,74 @@ from transformers import pipeline
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-from color_sentiment_extractor.extraction.general.token import normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token  # kept for reuse elsewhere
+
+__docformat__ = "google"
+
+# ─────────────────────────────────────────────
+# Typage & surface publique
+# ─────────────────────────────────────────────
+Sentiment = Literal["positive", "negative", "neutral"]
+
+
+class ClauseResult(TypedDict):
+    clause: str
+    polarity: Sentiment
+    separator: Optional[str]
+
+
+__all__ = [
+    "analyze_sentence_sentiment",
+    "classify_segments_by_sentiment_no_neutral",
+    "detect_sentiment",
+    "map_sentiment",
+    "is_negated_or_soft",
+]
 
 # ─────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
-def _dbg(enabled: bool, *args):
+def _dbg(enabled: bool, *args: Any) -> None:
     """Internal debug helper that respects logger config."""
     if enabled:
         logger.debug(" ".join(str(a) for a in args))
 
 # ─────────────────────────────────────────────
-# Config: VADER thresholds (tunable)
+# Config via ENV: thresholds & feature switches
 # ─────────────────────────────────────────────
-VADER_POS_TH: float = 0.05
-VADER_NEG_TH: float = -0.05
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except Exception:
+        return default
+
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip() not in {"0", "false", "False", ""}
+
+VADER_POS_TH: float = _env_float("SENT_POS_TH", 0.05)
+VADER_NEG_TH: float = _env_float("SENT_NEG_TH", -0.05)
+USE_NEGEX: bool = _env_bool("USE_NEGEX", True)
+ALLOW_NLTK_DOWNLOAD: bool = _env_bool("ALLOW_NLTK_DOWNLOAD", False)
+USE_FAKE_BART: bool = _env_bool("BART_MNLI_FAKE", False)
 
 # ─────────────────────────────────────────────
 # Single source of truth for BART candidates
+# (order is contractuel)
 # ─────────────────────────────────────────────
-_BART_CANDIDATES: List[Tuple[str, str]] = [
+_BART_CANDIDATES: List[Tuple[str, Sentiment]] = [
     ("I like this", "positive"),
     ("I dislike this", "negative"),
     ("I'm unsure or neutral", "neutral"),
 ]
 _CANDIDATE_LABELS: List[str] = [t for (t, _) in _BART_CANDIDATES]
-_CANDIDATE_SENTIMENTS: List[str] = [s for (_, s) in _BART_CANDIDATES]
+_CANDIDATE_SENTIMENTS: List[Sentiment] = [s for (_, s) in _BART_CANDIDATES]
 
-def _map_bart_label_to_sentiment(label: str) -> str:
+def _map_bart_label_to_sentiment(label: str) -> Sentiment:
     """Maps the top BART textual label back to the intended sentiment without a duplicate dict."""
     try:
         i = _CANDIDATE_LABELS.index(label)
@@ -73,12 +113,12 @@ def _map_bart_label_to_sentiment(label: str) -> str:
 _nlp = None
 _vader = None
 _sentiment_pipeline = None
-_negex_ready = None  # tri-state: None (unknown), True (available), False (not installed)
+_negex_ready: Optional[bool] = None  # tri-state: None (unknown), True (available), False (not installed)
 
 _SENTIMENT_MODEL_NAME = "facebook/bart-large-mnli"
 
 def get_nlp():
-    """Safe loader: prefer en_core_web_sm, fallback to blank('en')"""
+    """Safe loader: prefer en_core_web_sm, fallback to blank('en')."""
     global _nlp
     if _nlp is None:
         try:
@@ -89,38 +129,66 @@ def get_nlp():
     return _nlp
 
 def get_vader():
+    """Lazily initialize VADER. Respects ALLOW_NLTK_DOWNLOAD to avoid downloading in prod."""
     global _vader
     if _vader is None:
         try:
             nltk.data.find("sentiment/vader_lexicon.zip")
         except LookupError:
-            nltk.download("vader_lexicon")
+            if ALLOW_NLTK_DOWNLOAD:
+                logger.info("VADER lexicon not found. Downloading because ALLOW_NLTK_DOWNLOAD=1.")
+                nltk.download("vader_lexicon", quiet=True)
+            else:
+                msg = "VADER lexicon not found and ALLOW_NLTK_DOWNLOAD=0. Please pre-install NLTK data."
+                logger.error(msg)
+                raise RuntimeError(msg)
         _vader = SentimentIntensityAnalyzer()
     return _vader
 
+class _FakeZeroShot:
+    """Tiny offline replacement for tests. Returns a deterministic label order."""
+    def __call__(self, text: str, labels: List[str]) -> Dict[str, List[str]]:
+        low = text.lower()
+        # naive rules just for tests
+        if any(k in low for k in ("love", "like", "fan of", "great", "good", "amazing")):
+            order = [labels[0], labels[2], labels[1]]  # positive > neutral > negative
+        elif any(k in low for k in ("hate", "dislike", "awful", "bad", "terrible")):
+            order = [labels[1], labels[2], labels[0]]  # negative > neutral > positive
+        else:
+            order = [labels[2], labels[0], labels[1]]  # neutral > positive > negative
+        return {"labels": order, "scores": [0.9, 0.08, 0.02]}
+
 def get_sentiment_pipeline():
-    """Zero-shot classifier with device auto-detection (GPU if available)."""
+    """Zero-shot classifier with device auto-detection (GPU if available), or fake offline pipeline."""
     global _sentiment_pipeline
     if _sentiment_pipeline is None:
-        try:
-            import torch  # optional
-            device = 0 if torch.cuda.is_available() else -1
-        except Exception:
-            device = -1
-        _sentiment_pipeline = pipeline(
-            "zero-shot-classification",
-            model=_SENTIMENT_MODEL_NAME,
-            device=device,
-        )
+        if USE_FAKE_BART:
+            logger.info("Using _FakeZeroShot pipeline (BART_MNLI_FAKE=1).")
+            _sentiment_pipeline = _FakeZeroShot()
+        else:
+            try:
+                import torch  # optional
+                device = 0 if torch.cuda.is_available() else -1
+            except Exception:
+                device = -1
+            _sentiment_pipeline = pipeline(
+                "zero-shot-classification",
+                model=_SENTIMENT_MODEL_NAME,
+                device=device,
+            )
     return _sentiment_pipeline
 
 def ensure_negex():
     """
-    Try to attach negspaCy 'negex' pipe if available.
+    Try to attach negspaCy 'negex' pipe if available and USE_NEGEX is True.
     Returns the active nlp with negex (or plain nlp if not available).
     """
     global _negex_ready
     nlp = get_nlp()
+    if not USE_NEGEX:
+        _negex_ready = False
+        return nlp
+
     if _negex_ready is False:
         return nlp
     if _negex_ready is True and "negex" in nlp.pipe_names:
@@ -137,13 +205,19 @@ def ensure_negex():
     return nlp
 
 # ─────────────────────────────────────────────
+# Precompiled regex
+# ─────────────────────────────────────────────
+_WHITESPACE_RE = re.compile(r"\s+")
+_PUNCT_SPLIT_RE = re.compile(r"([.;,])")
+
+# ─────────────────────────────────────────────
 # LRU cache for repeated VADER scoring
 # ─────────────────────────────────────────────
 @lru_cache(maxsize=2048)
 def _vader_score(text: str) -> float:
     """Cache VADER scores with light whitespace normalization (preserve case)."""
     try:
-        key = re.sub(r"\s+", " ", text.strip())
+        key = _WHITESPACE_RE.sub(" ", text.strip())
         return get_vader().polarity_scores(key)["compound"]
     except Exception:
         logger.exception("VADER scoring failed")
@@ -163,19 +237,24 @@ def classify_segments_by_sentiment_no_neutral(has_splitter: bool, segments: List
         try:
             base = detect_sentiment(seg)          # hybrid (VADER → BART)
             mapped = map_sentiment(base, seg)     # negation override + VADER re-check
-            final = mapped
+            final: Sentiment = mapped
             if final == "neutral":
                 hn, sn = is_negated_or_soft(seg, debug=False)
                 final = "negative" if (hn or sn) else "positive"
-            classification[final].append(seg)
+            # Only two buckets in this function:
+            classification["negative" if final == "negative" else "positive"].append(seg)
         except Exception:
-            logger.exception("SENTIMENT ERROR on segment: %r", seg)
+            logger.exception("SENTIMENT ERROR on segment: %r", seg, exc_info=True)
     return classification
 
 # ─────────────────────────────────────────────
 # Hybrid sentiment detection (with DI for tests)
 # ─────────────────────────────────────────────
-def detect_sentiment(text: str, vader: Optional[SentimentIntensityAnalyzer] = None, bart=None) -> str:
+def detect_sentiment(
+    text: str,
+    vader: Optional[SentimentIntensityAnalyzer] = None,
+    bart: Optional[Any] = None
+) -> Sentiment:
     """
     Detects sentiment using a hybrid approach:
     1) VADER for quick lexical scoring (handles 'love', 'fan of', 'hate', etc.)
@@ -196,7 +275,8 @@ def detect_sentiment(text: str, vader: Optional[SentimentIntensityAnalyzer] = No
 
         # Fallback to BART if near-neutral
         pipe = bart or get_sentiment_pipeline()
-        result = pipe(text, _CANDIDATE_LABELS)
+        # Deterministic: rely on candidate labels order; single-label decision.
+        result = pipe(text, _CANDIDATE_LABELS)  # type: ignore[call-arg]
         top_label = result["labels"][0]
         return _map_bart_label_to_sentiment(top_label)
 
@@ -204,7 +284,7 @@ def detect_sentiment(text: str, vader: Optional[SentimentIntensityAnalyzer] = No
         logger.exception("detect_sentiment failed")
         return "neutral"
 
-def map_sentiment(predicted: str, text: str) -> str:
+def map_sentiment(predicted: Sentiment, text: str) -> Sentiment:
     """
     Post-processes the predicted sentiment by:
     - Overriding with negation (hard/soft) if present (negation wins),
@@ -246,7 +326,7 @@ def contains_sentiment_splitter_with_segments(text: str) -> Tuple[bool, List[str
         return False, [text.strip()]
 
     # 2) Try dependency-based splitter
-    index = find_splitter_index(doc)
+    index = find_clause_splitter_index(doc)
 
     # 2a) Guard: if the split is caused by a sentence-initial ADV (advmod at i=0),
     #            only allow it when it's a configured discourse adverb.
@@ -274,17 +354,18 @@ def contains_sentiment_splitter_with_segments(text: str) -> Tuple[bool, List[str
 
 def should_skip_split_due_to_or_negation(doc) -> bool:
     has_neg = any(tok.dep_ == "neg" for tok in doc)
-    has_or = any(normalize_token(tok.text, keep_hyphens=True) == "or" for tok in doc)
+    # leaner than normalize_token for this single check:
+    has_or = any(tok.lower_ == "or" for tok in doc)
     has_punct = any(tok.text in {".", ",", ";"} for tok in doc)
     return has_neg and has_or and not has_punct
 
-def find_splitter_index(doc) -> Optional[int]:
+def find_clause_splitter_index(doc) -> Optional[int]:
     """
-    Heuristics to find a clause-level splitter token.
-    Prioritizes coordinating conjunctions / markers, but skips when joining tones.
+    Heuristics to find a clause-level splitter token (cc/mark/discourse).
+    Skips conjunctions that connect two tone-like descriptors (see is_tone_conjunction).
     """
     for i, tok in enumerate(doc):
-        if tok.dep_ == "cc" and tok.text.lower() in {"and", "or"}:
+        if tok.dep_ == "cc" and tok.lower_ in {"and", "or"}:
             if is_tone_conjunction(doc, i, debug=False):
                 continue
         if tok.dep_ in {"cc", "mark", "discourse"}:
@@ -315,12 +396,12 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
     if not prev or not next_:
         dbg("Missing prev/next neighbor → False"); return False
 
-    center_text = tok.text.lower()
+    center_text = tok.lower_
     conj_like = (center_text in {"and", "or", "&", "/"} or tok.pos_ == "CCONJ" or tok.tag_ in {"CC", "CCONJ"})
     dbg(f"conj_like={conj_like}")
 
     def is_adj_or_noun_like(t):
-        low, pos, tag, morph, dep = t.text.lower(), t.pos_, t.tag_, t.morph, t.dep_
+        low, pos, tag, morph, dep = t.lower_, t.pos_, t.tag_, t.morph, t.dep_
 
         if pos == "ADV":
             return False, {"text": t.text, "pos": pos, "reason": "pos==ADV → reject"}
@@ -410,7 +491,8 @@ def fallback_split_on_punctuation(text: str) -> Tuple[bool, List[str]]:
     Split on punctuation as a last resort. If only one segment is found,
     return no-split.
     """
-    segments = [s.strip() for s in re.split(r"[.;,]", text) if s.strip()]
+    segments = [s.strip() for s in _PUNCT_SPLIT_RE.split(text) if s and s.strip() not in {".", ";", ","}]
+    # The splitting above keeps separators in the list; we filtered them out.
     return (True, segments) if len(segments) >= 2 else (False, [text.strip()])
 
 # ─────────────────────────────────────────────
@@ -427,7 +509,7 @@ def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], Li
     doc = _doc if _doc is not None else nlp(text)
 
     # 1) Try dependency-based split
-    idx = find_splitter_index(doc)
+    idx = find_clause_splitter_index(doc)
     if idx is not None:
         sep = doc[idx].text.strip()
         left = doc[:idx].text.strip()
@@ -441,7 +523,7 @@ def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], Li
     #    Example: "Choose matte or choose glossy" → split on 'or'
     #    Only trigger when at least one neighbor of 'or' is VERB/AUX to avoid descriptor pairs.
     for j, tok in enumerate(doc):
-        if tok.text.lower() == "or":
+        if tok.lower_ == "or":
             prev_tok = doc[j - 1] if j - 1 >= 0 else None
             next_tok = doc[j + 1] if j + 1 < len(doc) else None
             if prev_tok is None or next_tok is None:
@@ -452,8 +534,8 @@ def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], Li
                 if left and right:  # only accept if both sides are non-empty
                     return [left, right], ["or", None]
 
-    # 3) Fallback to punctuation
-    parts = re.split(r"([.;,])", text)
+    # 3) Fallback to punctuation (preserve separators)
+    parts = _PUNCT_SPLIT_RE.split(text)
     clauses: List[str] = []
     seps: List[Optional[str]] = []
     current = ""
@@ -472,7 +554,7 @@ def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], Li
         return [text.strip()], [None]
     return clauses, seps
 
-def analyze_sentence_sentiment(sentence: str) -> List[Dict[str, Optional[str]]]:
+def analyze_sentence_sentiment(sentence: str) -> List[ClauseResult]:
     """
     High-level API: takes a full sentence and returns:
       [{"clause": str, "polarity": "positive|negative|neutral", "separator": str|None}, ...]
@@ -481,7 +563,7 @@ def analyze_sentence_sentiment(sentence: str) -> List[Dict[str, Optional[str]]]:
         nlp = get_nlp()
         doc = nlp(sentence)
         clauses, separators = _split_sentence_with_separators(sentence, _doc=doc)
-        out: List[Dict[str, Optional[str]]] = []
+        out: List[ClauseResult] = []
         for i, clause in enumerate(clauses):
             base = detect_sentiment(clause)
             pol = map_sentiment(base, clause)
@@ -496,6 +578,11 @@ def analyze_sentence_sentiment(sentence: str) -> List[Dict[str, Optional[str]]]:
 # ─────────────────────────────────────────────
 # Negation Detection (negspaCy optional + soft negation)
 # ─────────────────────────────────────────────
+@lru_cache(maxsize=4096)
+def _is_negated_or_soft_cached(text: str) -> Tuple[bool, bool]:
+    """Cached core for is_negated_or_soft when debug=False."""
+    return _is_negated_or_soft_core(text, debug=False)
+
 def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
     """
     Returns (hard_negation, soft_negation), mutually exclusive.
@@ -507,6 +594,11 @@ def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
           R3: 'no' as DET (dep=det) of ADJ/NOUN/PROPN (e.g., 'no good', 'no problem')
           R4: PRON starting with 'no' as core argument (nsubj/obj/attr, etc.)
     """
+    if not debug:
+        return _is_negated_or_soft_cached(text)
+    return _is_negated_or_soft_core(text, debug=True)
+
+def _is_negated_or_soft_core(text: str, debug: bool = False) -> Tuple[bool, bool]:
     _dbg(debug, f"\n[INPUT] {text!r}")
 
     nlp = ensure_negex()
@@ -515,10 +607,12 @@ def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
     if debug:
         _dbg(True, "\n[TOKENS DEBUG]")
         for i, tok in enumerate(doc):
-            _dbg(True,
-                 f"{i:02d} | text={tok.text!r:12} lemma={tok.lemma_!r:12} "
-                 f"dep={tok.dep_:10} pos={tok.pos_:6} tag={tok.tag_:6} "
-                 f"morph={tok.morph} Polarity={tok.morph.get('Polarity')}")
+            _dbg(
+                True,
+                f"{i:02d} | text={tok.text!r:12} lemma={tok.lemma_!r:12} "
+                f"dep={tok.dep_:10} pos={tok.pos_:6} tag={tok.tag_:6} "
+                f"morph={tok.morph} Polarity={tok.morph.get('Polarity')}",
+            )
 
     # negspaCy (reference only)
     try:
@@ -537,7 +631,7 @@ def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
         neg_cue = (
             t1.morph.get("Polarity") == ["Neg"]
             or t1.lemma_.lower() in {"not", "no"}
-            or (t1.pos_ in {"PRON", "ADV"} and t1.text.lower().startswith("no"))
+            or (t1.pos_ in {"PRON", "ADV"} and t1.lower_.startswith("no"))
         )
         motif = neg_cue and (t2.lower_ == "too") and (t3.pos_ == "ADJ")
         if debug:
@@ -560,7 +654,7 @@ def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
     # --- HARD cues (check only OUTSIDE soft window if soft exists) ---
     fired = None
     def outside_soft(idx: int) -> bool:
-        return not soft_neg or idx < soft_start or idx > soft_end
+        return not soft_neg or idx < soft_start or idx > soft_end  # type: ignore[operator]
 
     # R1: dep=neg
     for i, tok in enumerate(doc):
@@ -581,7 +675,7 @@ def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
     if not fired:
         CORE_ARGS = {"nsubj", "nsubjpass", "obj", "dobj", "pobj", "attr"}
         for i, tok in enumerate(doc):
-            if tok.pos_ == "PRON" and tok.text.lower().startswith("no") and tok.dep_ in CORE_ARGS and outside_soft(i):
+            if tok.pos_ == "PRON" and tok.lower_.startswith("no") and tok.dep_ in CORE_ARGS and outside_soft(i):
                 fired = ("R4_neg_pron_core", i, tok.text); break
 
     # --- Decision: either hard or soft ---
