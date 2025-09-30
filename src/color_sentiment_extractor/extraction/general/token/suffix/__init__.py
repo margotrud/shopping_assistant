@@ -1,17 +1,23 @@
-# token/suffix/__init__.py
+# extraction/general/token/suffix/__init__.py
+"""
+suffix
+======
+
+Does: Provide suffix vocabulary builders and recovery functions.
+Exports: build_augmented_suffix_vocab, is_suffix_variant, SUFFIX_RECOVERY_FUNCS
+Used by: Suffix vocab builders, base-recovery flows, and token extraction pipelines.
+"""
 
 from __future__ import annotations
 
-# Expose core builders/predicates
 from .recovery import (
     build_augmented_suffix_vocab,
     is_suffix_variant,
 )
 
-# Expose registry (ordered recovery funcs + dispatcher si tu l’as ajouté)
 from .registry import (
     SUFFIX_RECOVERY_FUNCS,
-    # recover_with_registry,   # ← dé-commente si tu veux l’exposer aussi
+    # recover_with_registry,  # uncomment to expose dispatcher
 )
 
 __all__ = [
