@@ -1,5 +1,17 @@
-# ── Boot / ENV ────────────────────────────────────────────────────────────────
+# orchestrator.py
 from __future__ import annotations
+
+"""
+orchestrator.py
+===============
+
+Does: High-level orchestration to analyze color phrases (with/without sentiment),
+      deduplicate results, and build a nearest-color palette from known web colors.
+Returns:
+  - analyze_colors_with_sentiment(text, top_k) -> {"positif": [...], "negatif": [...]}
+  - analyze_colors(text, top_k) -> {"primary": {...}, "alternatives": [...], "tones": set, "phrases": list, "rgb_map": dict}
+Used by: Product/search flows, color preference UIs, and debugging tools.
+"""
 
 import os
 import sys
@@ -7,50 +19,43 @@ import logging
 from functools import lru_cache
 from typing import Set, Tuple, Optional, List, Dict
 
-from dotenv import load_dotenv
-
 from color_sentiment_extractor.extraction.color.llm import get_llm_client
-
-# Logging (ne force pas de configuration globale — honorable par défaut)
-logger = logging.getLogger(__name__)
-
-load_dotenv()
-logger.info("Python: %s", sys.executable)
-logger.info("OpenRouter API key present: %s", "yes" if os.getenv("OPENROUTER_API_KEY") else "no")
-
-# ── Pipelines / Logic ─────────────────────────────────────────────────────────
-from color_sentiment_extractor.extraction.color.logic.pipelines.rgb_pipeline import (
-    resolve_rgb_with_llm,
-)
-from color_sentiment_extractor.extraction.general.sentiment import (
-    analyze_sentence_sentiment,
-)
-from color_sentiment_extractor.extraction.color.logic import (
-    aggregate_color_phrase_results,
-)
-
-# ── Vocab & Config ───────────────────────────────────────────────────────────
+from color_sentiment_extractor.extraction.color.logic.pipelines.rgb_pipeline import resolve_rgb_with_llm
+from color_sentiment_extractor.extraction.general.sentiment import analyze_sentence_sentiment
+from color_sentiment_extractor.extraction.color.logic import aggregate_color_phrase_results
 from color_sentiment_extractor.extraction.color.vocab import all_webcolor_names
 from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-
-known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
-known_tones: Set[str] = load_config("known_tones", mode="set")
-
-# ── Token & RGB utils ────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.general.token import recover_base
 from color_sentiment_extractor.extraction.color.utils.rgb_distance import (
     _try_simplified_match,
     rgb_distance,
 )
 
+logger = logging.getLogger(__name__)
+
+# ── Config snapshots ──────────────────────────────────────────────────────────
+known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
+known_tones: Set[str] = load_config("known_tones", mode="set")
+
+# Public toggle (env)
+USE_LLM = os.getenv("CSE_USE_LLM", "1") == "1"
+
+__all__ = [
+    "analyze_colors_with_sentiment",
+    "analyze_colors",
+]
+
 # =============================================================================
-# Monkey-patch optionnel: guard pour split_glued_tokens (évite les stalls)
+# Optional guard: safer split_glued_tokens (opt-in)
 # =============================================================================
-def _force_guard_split_glued_tokens() -> None:
+def _enable_glued_guard_if_requested() -> None:
     """
-    Active un guard sur split_glued_tokens pour court-circuiter les tokens très courts.
-    Ne fait rien si la fonction/module n’existe pas (safe no-op).
+    Activates a guard on split_glued_tokens to short-circuit ultra-short tokens.
+    No-ops safely if the module/symbol is missing.
+    Triggered only when CSE_ENABLE_GLUED_GUARD=1.
     """
+    if os.getenv("CSE_ENABLE_GLUED_GUARD") != "1":
+        return
     try:
         import importlib
         m = importlib.import_module(
@@ -67,7 +72,6 @@ def _force_guard_split_glued_tokens() -> None:
     _orig = m.split_glued_tokens  # type: ignore[attr-defined]
 
     def _patched(token: str, *a, **kw):
-        # Court-circuite les tokens très courts
         if not token or len(token) <= 2:
             return []
         return _orig(token, *a, **kw)
@@ -75,15 +79,13 @@ def _force_guard_split_glued_tokens() -> None:
     m.split_glued_tokens = _patched  # type: ignore[attr-defined]
     logger.info("[patch] split_glued_tokens guard ACTIVE in %s", m.__name__)
 
-if os.getenv("CSE_ENABLE_GLUED_GUARD") == "1":
-    _force_guard_split_glued_tokens()
 
 # =============================================================================
 # Helpers
 # =============================================================================
 
 def _coerce_rgb(rgb: object) -> Optional[Tuple[int, int, int]]:
-    """Convertit divers types RGB en tuple natif (r, g, b)."""
+    """Coerces diverse RGB representations to a native (r, g, b) tuple."""
     if rgb is None:
         return None
     if isinstance(rgb, tuple) and len(rgb) == 3:
@@ -106,7 +108,7 @@ def _coerce_rgb(rgb: object) -> Optional[Tuple[int, int, int]]:
 
 
 def _map_name_rgb_list(items: List[Dict[str, object]]) -> List[Dict[str, Tuple[int, int, int]]]:
-    """Applique _coerce_rgb sur une liste [{'name':..., 'rgb':...}, ...]."""
+    """Apply _coerce_rgb on a list of {'name':..., 'rgb':...} dicts."""
     out: List[Dict[str, Tuple[int, int, int]]] = []
     for d in items:
         if not isinstance(d, dict):
@@ -123,7 +125,7 @@ def _map_name_rgb_list(items: List[Dict[str, object]]) -> List[Dict[str, Tuple[i
 
 
 def _unique_by_name(items: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    """Déduplique en préservant l'ordre d'apparition (clé = 'name')."""
+    """Stable-deduplicate by 'name' while preserving order."""
     seen: Set[str] = set()
     out: List[Dict[str, object]] = []
     for it in items:
@@ -138,7 +140,7 @@ def _unique_by_name(items: List[Dict[str, object]]) -> List[Dict[str, object]]:
 
 
 def _drop_items_with_none_rgb(items: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    """Supprime les entrées dont le rgb est None (ou mal formé)."""
+    """Remove entries with missing or malformed RGB."""
     out: List[Dict[str, object]] = []
     for it in items:
         if not isinstance(it, dict):
@@ -157,9 +159,7 @@ def _dedupe_cross_lists(
     positives: List[Dict[str, object]],
     negatives: List[Dict[str, object]],
 ) -> List[Dict[str, object]]:
-    """
-    Supprime des négatifs les couleurs déjà présentes en positifs (priorité au like).
-    """
+    """Remove from negatives any color already present in positives."""
     pos_names = {
         str(p["name"]).strip().lower()
         for p in positives
@@ -178,9 +178,7 @@ def _dedup_singles_against_compounds(
     known_mods: Set[str],
     known_tns: Set[str],
 ) -> Set[str]:
-    """
-    Supprime les singletons couverts par au moins un composé (surface + recover_base).
-    """
+    """Drop single tokens covered by at least one compound (surface + recover_base)."""
     covered: Set[str] = set()
     for comp in compounds:
         for w in comp.split():
@@ -197,9 +195,7 @@ def _dedup_singles_against_compounds(
 
 
 def _build_known_palette(names: Set[str]) -> Dict[str, Tuple[int, int, int]]:
-    """
-    Construit une palette {name -> (r,g,b)} à partir des noms CSS/XKCD connus.
-    """
+    """Build {name -> (r,g,b)} from CSS/XKCD names."""
     palette: Dict[str, Tuple[int, int, int]] = {}
     for nm in names:
         rgb = _try_simplified_match(nm, debug=False)
@@ -221,9 +217,7 @@ def _top_k_nearest(
     exclude: Set[str],
     k: int,
 ) -> List[Dict[str, Tuple[int, int, int]]]:
-    """
-    Renvoie les k couleurs les plus proches (name + rgb), sans distances.
-    """
+    """Return top-k nearest colors (name + rgb) without distances."""
     scored: List[Tuple[float, str, Tuple[int, int, int]]] = []
     exclude_l = {e.strip().lower() for e in exclude}
     for name, rgb in palette.items():
@@ -236,9 +230,7 @@ def _top_k_nearest(
 
 
 def _pick_primary(tones: Set[str], phrases: Set[str]) -> Optional[str]:
-    """
-    Choisit une « primary »: priorité aux composés, sinon premier trié.
-    """
+    """Pick a primary phrase: prefer compounds, otherwise first sorted."""
     if tones:
         comps = [t for t in tones if " " in t]
         return (sorted(comps, key=len, reverse=True)[0] if comps else sorted(tones)[0])
@@ -248,16 +240,12 @@ def _pick_primary(tones: Set[str], phrases: Set[str]) -> Optional[str]:
     return None
 
 
-USE_LLM = os.getenv("CSE_USE_LLM", "1") == "1"
-
 def _resolve_rgb_for_phrase(
     phrase: Optional[str],
     llm_client,
     debug: bool = False,
 ) -> Optional[Tuple[int, int, int]]:
-    """
-    Résout un RGB robuste (CSS/XKCD d’abord, puis fallback LLM si activé).
-    """
+    """Resolve RGB robustly: CSS/XKCD first, then LLM fallback if enabled."""
     if not phrase:
         return None
     rgb = _try_simplified_match(phrase, debug=debug)
@@ -281,8 +269,8 @@ def _extract_group_colors(
     debug: bool = False,
 ) -> Tuple[Set[str], Set[str], Dict[str, Tuple[int, int, int]]]:
     """
-    Exécute le color pipeline sur une liste de segments, applique la dédup, et
-    garde un rgb_map aligné sur les phrases retenues.
+    Run the color pipeline on a list of segments, apply de-duplication,
+    and retain an rgb_map aligned with the retained phrases.
     """
     if not group_segments:
         return set(), set(), {}
@@ -304,7 +292,6 @@ def _extract_group_colors(
 
     tones = _apply_dedup(set(tones))
     phrases = _apply_dedup(set(phrases))
-    # Normalise rgb_map et ne garde que les phrases retenues
     rgb_map = {k: _coerce_rgb(v) for k, v in rgb_map.items() if k in phrases}
     return tones, phrases, rgb_map
 
@@ -316,9 +303,7 @@ def _bundle_palette(
     palette: Dict[str, Tuple[int, int, int]],
     top_k: int,
 ) -> List[Dict[str, Tuple[int, int, int]]]:
-    """
-    Construit la liste: [primary(name+rgb), alt1(name+rgb), ...] sans distances.
-    """
+    """Build [primary(name+rgb), alt1(name+rgb), ...] without distances."""
     if not primary_phrase or not primary_rgb:
         return []
     exclude = set(phrases_set) | {primary_phrase}
@@ -334,46 +319,38 @@ def analyze_colors_with_sentiment(
     text: str, *, top_k: int = 12, debug: bool = False
 ) -> Dict[str, List[Dict[str, Tuple[int, int, int]]]]:
     """
-    Mode PRÉFÉRENCES :
-    Retourne deux listes:
+    Preference mode:
+    Returns:
       {
-        "positif": [{ "name": <primary_like>, "rgb": (...) }, { "name": <alt1>, "rgb": (...) }, ...],
-        "negatif": [{ "name": <primary_dislike>, "rgb": (...) }, { "name": <alt1>, "rgb": (...) }, ...]
+        "positif": [{"name": <primary_like>, "rgb": (...) }, ...],
+        "negatif": [{"name": <primary_dislike>, "rgb": (...) }, ...]
       }
     """
-    # 1) Clauses + polarités
-    clauses = analyze_sentence_sentiment(text)  # [{clause, polarity, ...}]
+    clauses = analyze_sentence_sentiment(text)
     pos_clauses = [c["clause"] for c in clauses if c.get("polarity") == "positive"]
     neg_clauses = [c["clause"] for c in clauses if c.get("polarity") == "negative"]
 
-    # 2) Extraction couleurs par polarité
     llm_client = get_llm_client(debug=debug)
     pos_tones, pos_phrases, _ = _extract_group_colors(pos_clauses, llm_client, debug)
     neg_tones, neg_phrases, _ = _extract_group_colors(neg_clauses, llm_client, debug)
 
-    # 3) Primary + RGB
     pos_primary = _pick_primary(pos_tones, pos_phrases)
     neg_primary = _pick_primary(neg_tones, neg_phrases)
 
     pos_rgb = _resolve_rgb_for_phrase(pos_primary, llm_client, debug=debug)
     neg_rgb = _resolve_rgb_for_phrase(neg_primary, llm_client, debug=debug)
 
-    # 4) Alternatives proches (name+rgb), pas de distances
     palette = _get_known_palette_cached()
     positif = _bundle_palette(pos_primary, pos_rgb, pos_phrases, palette, top_k)
     negatif = _bundle_palette(neg_primary, neg_rgb, neg_phrases, palette, top_k)
 
-    # 5) Normalise
     positif = _map_name_rgb_list(positif)
     negatif = _map_name_rgb_list(negatif)
 
-    # 6) Dédupe intra-listes + drop None
     positif = _drop_items_with_none_rgb(_unique_by_name(positif))
     negatif = _drop_items_with_none_rgb(_unique_by_name(negatif))
 
-    # 7) Dédupe inter-listes (positif > négatif)
     negatif = _dedupe_cross_lists(positif, negatif)
-
     return {"positif": positif, "negatif": negatif}
 
 
@@ -381,8 +358,8 @@ def analyze_colors(
     text: str, debug: bool = False, *, top_k: int = 12
 ) -> Dict[str, object]:
     """
-    Mode legacy « un seul bloc » (primary + alternatives).
-    Retourne aussi tones/phrases/rgb_map pour debug/intégration.
+    Legacy “single block” mode (primary + alternatives).
+    Also returns tones/phrases/rgb_map for integration/debug.
     """
     llm_client = get_llm_client(debug=debug)
 
@@ -414,14 +391,13 @@ def analyze_colors(
         exclude = set(phrases) | ({primary_phrase} if primary_phrase else set())
         alternatives = _top_k_nearest(primary_rgb, palette, exclude=exclude, k=top_k)
 
-    # Normalisation finale
     if primary_rgb:
         primary_rgb = _coerce_rgb(primary_rgb)
     alternatives = _map_name_rgb_list(alternatives)
 
     return {
         "primary": {"phrase": primary_phrase, "rgb": primary_rgb},
-        "alternatives": alternatives,   # juste name + rgb (tuples)
+        "alternatives": alternatives,
         "tones": tones,
         "phrases": list(phrases),
         "rgb_map": rgb_map,
@@ -429,10 +405,22 @@ def analyze_colors(
 
 
 # =============================================================================
-# Demo
+# Demo / Runtime entry
 # =============================================================================
 if __name__ == "__main__":
-    # Exemple d’usage (préférences)
+    # Load env + basic context logs only at runtime (no import side effects)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+
+    logger.info("Python: %s", sys.executable)
+    logger.info("OpenRouter API key present: %s", "yes" if os.getenv("OPENROUTER_API_KEY") else "no")
+
+    _enable_glued_guard_if_requested()
+
+    # Demo — preferences
     print(analyze_colors_with_sentiment("I love bright red but I hate purple", top_k=10, debug=True))
-    # Exemple legacy
+    # Demo — legacy
     # print(analyze_colors("Soft dusty rose glow lipstick", debug=True))
