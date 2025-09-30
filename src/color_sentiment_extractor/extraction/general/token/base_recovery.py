@@ -1,13 +1,26 @@
+# extraction/general/token/base_recovery.py
 # ──────────────────────────────────────────────────────────────
 # Token Base Recovery
 # Single entrypoint for base-form recovery across the project.
 # ──────────────────────────────────────────────────────────────
-
 from __future__ import annotations
 
-from functools import lru_cache
-from typing import Iterable, Optional, Set
+"""
+base_recovery
 
+Does: Map noisy/suffixed tokens to canonical bases via
+      overrides → suffix recovery → direct hits → fuzzy/abbr fallbacks,
+      with depth safeguards and optional suffix dispatcher.
+Returns: recover_base() plus helpers is_known_modifier()/is_known_tone().
+Used by: Token normalization flows and color/modifier extraction stages.
+
+Notes:
+- Normalization here is intentionally light: lower + strip + remove spaces/hyphens/underscores.
+  (We do NOT call normalize_token to keep semantics identical to v1 behavior.)
+"""
+
+from functools import lru_cache
+from typing import Iterable
 import logging
 
 from color_sentiment_extractor.extraction.color.constants import (
@@ -15,40 +28,40 @@ from color_sentiment_extractor.extraction.color.constants import (
     SEMANTIC_CONFLICTS,
     BLOCKED_TOKENS,
 )
+from color_sentiment_extractor.extraction.general.fuzzy import fuzzy_match_token_safe
 from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-# ⚠️ Évite l’import lourd depuis color.vocab ; charge via config
-# from color_sentiment_extractor.extraction.color.vocab import known_tones as KNOWN_TONES
 
-# Registre suffixes (liste ordonnée) + dispatcher optionnel si dispo
+# Suffix registry (ordered list) + optional suffix-aware dispatcher
 from color_sentiment_extractor.extraction.general.token.suffix.registry import (
     SUFFIX_RECOVERY_FUNCS,
 )
+
 try:
-    # Optionnel : dispo si tu as ajouté le dispatcher suffix-aware
+    # Optional: available if dispatcher is included in the build
     from color_sentiment_extractor.extraction.general.token.suffix.registry import (
         recover_with_registry as _recover_with_registry,
     )
-except Exception:  # pragma: no cover
-    _recover_with_registry = None  # type: ignore
+except ImportError:  # pragma: no cover
+    _recover_with_registry = None  # type: ignore[misc]
 
-# Fuzzy util (assure-toi que __init__.py de fuzzy ré-exporte bien la fonction ;
-# sinon, utilise ...general.fuzzy.fuzzy_match: fuzzy_match_token_safe)
-from color_sentiment_extractor.extraction.general.fuzzy.fuzzy_match import (
-    fuzzy_match_token_safe,
-)
+__all__ = [
+    "recover_base",
+    "is_known_modifier",
+    "is_known_tone",
+]
 
 logger = logging.getLogger(__name__)
 
-# Defaults
+# Defaults / constants
 _DEFAULT_FUZZY_THRESHOLD = 90
 
-# Vowel sets (module-level to avoid recreating)
-VOWELS_CONS: Set[str] = set("aeiou")   # y as consonant
-VOWELS_VOW:  Set[str] = set("aeiouy")  # y as vowel
+# Vowel sets (module-level to avoid recreation)
+VOWELS_CONS: set[str] = set("aeiou")   # y as consonant
+VOWELS_VOW:  set[str] = set("aeiouy")  # y as vowel
 
-# Canonical sets (chargées depuis la config validée)
-KNOWN_MODIFIERS: Set[str] = load_config("known_modifiers", mode="set")
-KNOWN_TONES:     Set[str] = load_config("known_tones",     mode="set")
+# Canonical sets (loaded from validated config)
+KNOWN_MODIFIERS: set[str] = load_config("known_modifiers", mode="set")
+KNOWN_TONES:     set[str] = load_config("known_tones",     mode="set")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -61,10 +74,15 @@ def recover_base(
     allow_fuzzy: bool = True,
     debug: bool = False,
     **legacy_kwargs,
-) -> Optional[str]:
+) -> str | None:
     """
-    Does: Map noisy/suffixed token to canonical base via overrides → suffix rules → direct hits → optional fuzzy.
+    Does: Map a noisy/suffixed token to a canonical base via:
+          overrides → suffix rules (registry/dispatcher) → direct hit → fuzzy → abbr fallback.
     Returns: Base token or None.
+
+    Back-compat:
+      - legacy_kwargs["fuzzy_fallback"] (bool) mirrors allow_fuzzy (v1 compat).
+      - legacy_kwargs may pass known_modifiers/known_tones/fuzzy_threshold/use_cache.
     """
     if not token:
         return None
@@ -89,8 +107,8 @@ def recover_base(
     if not raw:
         return None
 
-    # ✅ Use a set[str] for known tokens (safer for fuzzy_core expectations)
-    combined_known: Set[str] = set(km) | set(kt)
+    # Use a set[str] for known tokens (safer for fuzzy_core expectations)
+    combined_known: set[str] = set(km) | set(kt)
 
     # Optional caching branch (use normalized raw in cache key)
     if legacy_kwargs.get("use_cache"):
@@ -121,9 +139,9 @@ def _recover_base_cached_with_params(
     raw: str,
     allow_fuzzy: bool,
     fuzzy_threshold: int,
-    km: frozenset,
-    kt: frozenset,
-) -> Optional[str]:
+    km: frozenset[str],
+    kt: frozenset[str],
+) -> str | None:
     """Does: Cached entry with stable params in the cache key. Returns: Base token or None."""
     return _recover_base_impl(
         raw=raw,
@@ -134,7 +152,6 @@ def _recover_base_cached_with_params(
         fuzzy_threshold=fuzzy_threshold,
         depth=0,
         max_depth=3,
-        # ✅ keep a set here too
         combined_known=set(km) | set(kt),
     )
 
@@ -146,29 +163,31 @@ def _recover_base_cached_with_params(
 def _recover_base_impl(
     raw: str,
     *,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
     debug: bool,
     fuzzy_fallback: bool,
     fuzzy_threshold: int,
     depth: int,
     max_depth: int,
-    combined_known: Set[str],
-) -> Optional[str]:
+    combined_known: set[str],
+) -> str | None:
     if debug:
-        logger.debug(f"[recover_base] raw='{raw}' depth={depth} fuzzy={fuzzy_fallback}")
+        logger.debug("[recover_base] raw=%r depth=%d fuzzy=%s", raw, depth, fuzzy_fallback)
 
     if depth > max_depth:
-        if debug: logger.debug(f"[⚠️ MAX DEPTH] Reached at '{raw}'")
+        if debug:
+            logger.debug("[MAX DEPTH] reached at %r", raw)
         return None
 
     # 1) Manual override (dict or iterable-of-pairs/sets)
     ov = _match_override(raw, known_modifiers, known_tones)
     if ov:
-        if debug: logger.debug(f"[override] '{raw}' → '{ov}'")
+        if debug:
+            logger.debug("[override] %r → %r", raw, ov)
         return ov
 
-    # 2) Suffix recovery chain (ordered) — with dispatcher si dispo
+    # 2) Suffix recovery chain (ordered) — prefer dispatcher if available
     if _recover_with_registry:
         try:
             result = _recover_with_registry(raw, known_modifiers, known_tones, debug=False)  # type: ignore[misc]
@@ -176,42 +195,51 @@ def _recover_base_impl(
             logger.exception("[suffix-dispatch] recover_with_registry crashed")
             result = None
         if result and result != raw:
-            chained = _recover_base_impl(
-                raw=result,
-                known_modifiers=known_modifiers,
-                known_tones=known_tones,
-                debug=False,
-                fuzzy_fallback=False,
-                fuzzy_threshold=fuzzy_threshold,
-                depth=depth + 1,
-                max_depth=max_depth,
-                combined_known=combined_known,
-            ) or result
+            chained = (
+                _recover_base_impl(
+                    raw=result,
+                    known_modifiers=known_modifiers,
+                    known_tones=known_tones,
+                    debug=False,
+                    fuzzy_fallback=False,
+                    fuzzy_threshold=fuzzy_threshold,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    combined_known=combined_known,
+                )
+                or result
+            )
             if _is_known_token(chained, known_modifiers, known_tones):
-                if debug: logger.debug(f"[suffix ✓] '{raw}' → '{chained}'")
+                if debug:
+                    logger.debug("[suffix ✓] %r → %r", raw, chained)
                 return chained
 
-    # Fallback: parcours de la liste ordonnée
+    # Fallback: walk ordered list
     for func in SUFFIX_RECOVERY_FUNCS:
-        if debug: logger.debug(f"[suffix] trying {getattr(func, '__name__', str(func))}('{raw}')")
+        if debug:
+            logger.debug("[suffix] trying %s(%r)", getattr(func, "__name__", str(func)), raw)
         result = _call_suffix_func(func, raw, known_modifiers, known_tones, debug=False)
 
         if result and result != raw:
             # One level of chaining
-            chained = _recover_base_impl(
-                raw=result,
-                known_modifiers=known_modifiers,
-                known_tones=known_tones,
-                debug=False,
-                fuzzy_fallback=False,
-                fuzzy_threshold=fuzzy_threshold,
-                depth=depth + 1,
-                max_depth=max_depth,
-                combined_known=combined_known,
-            ) or result
+            chained = (
+                _recover_base_impl(
+                    raw=result,
+                    known_modifiers=known_modifiers,
+                    known_tones=known_tones,
+                    debug=False,
+                    fuzzy_fallback=False,
+                    fuzzy_threshold=fuzzy_threshold,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    combined_known=combined_known,
+                )
+                or result
+            )
 
             if _is_known_token(chained, known_modifiers, known_tones):
-                if debug: logger.debug(f"[suffix ✓] '{raw}' → '{chained}'")
+                if debug:
+                    logger.debug("[suffix ✓] %r → %r", raw, chained)
                 return chained
 
             # Suffix fuzzy salvage (top-level only)
@@ -221,18 +249,25 @@ def _recover_base_impl(
                     fuzzy_mid = fuzzy_match_token_safe(candidate, combined_known, fuzzy_threshold, False)
                 except Exception:  # pragma: no cover
                     logger.exception(
-                        f"[fuzzy_mid] crash on candidate={candidate!r} | known={len(combined_known)} | thr={fuzzy_threshold}"
+                        "[fuzzy_mid] crash on candidate=%r | known=%d | thr=%d",
+                        candidate, len(combined_known), fuzzy_threshold
                     )
                     fuzzy_mid = None
 
                 if fuzzy_mid:
-                    if (candidate, fuzzy_mid) not in BLOCKED_TOKENS and (fuzzy_mid, candidate) not in BLOCKED_TOKENS and not _is_semantic_conflict(candidate, fuzzy_mid):
-                        if debug: logger.debug(f"[suffix fuzzy ✓] '{raw}' → '{candidate}' → '{fuzzy_mid}'")
+                    if (
+                        (candidate, fuzzy_mid) not in BLOCKED_TOKENS
+                        and (fuzzy_mid, candidate) not in BLOCKED_TOKENS
+                        and not _is_semantic_conflict(candidate, fuzzy_mid)
+                    ):
+                        if debug:
+                            logger.debug("[suffix fuzzy ✓] %r → %r → %r", raw, candidate, fuzzy_mid)
                         return fuzzy_mid
 
     # 3) Direct hit
     if _is_known_token(raw, known_modifiers, known_tones):
-        if debug: logger.debug(f"[direct ✓] '{raw}'")
+        if debug:
+            logger.debug("[direct ✓] %r", raw)
         return raw
 
     # 4) Fuzzy fallback (top-level only)
@@ -243,16 +278,16 @@ def _recover_base_impl(
     if not (len(raw) >= 4 or (len(raw) == 3 and raw.isalpha())):
         return None
 
-    local_threshold = fuzzy_threshold
-    if len(raw) == 3:
-        local_threshold = max(local_threshold, 85)
+    local_threshold = max(_DEFAULT_FUZZY_THRESHOLD, 85) if len(raw) == 3 else fuzzy_threshold
 
-    if debug: logger.debug(f"[fuzzy] probing '{raw}' (threshold={local_threshold})")
+    if debug:
+        logger.debug("[fuzzy] probing %r (threshold=%d)", raw, local_threshold)
     try:
         fuzzy_match = fuzzy_match_token_safe(raw, combined_known, local_threshold, False)
     except Exception:  # pragma: no cover
         logger.exception(
-            f"[fuzzy_match] crash on raw={raw!r} | known={len(combined_known)} | thr={local_threshold}"
+            "[fuzzy_match] crash on raw=%r | known=%d | thr=%d",
+            raw, len(combined_known), local_threshold
         )
         fuzzy_match = None
 
@@ -262,29 +297,38 @@ def _recover_base_impl(
         conflict = _is_semantic_conflict(raw, fuzzy_match)
 
         if first_letter_mismatch:
-            if debug: logger.debug(f"[fuzzy ×] first-letter guard: {raw} → {fuzzy_match} (try abbr fallback)")
+            if debug:
+                logger.debug("[fuzzy ×] first-letter guard: %s → %s (try abbr fallback)", raw, fuzzy_match)
             fuzzy_match = None
         elif blocked:
-            if debug: logger.debug(f"[fuzzy ×] blocked by BLOCKED_TOKENS: {raw} ↔ {fuzzy_match} (try abbr fallback)")
+            if debug:
+                logger.debug("[fuzzy ×] blocked by BLOCKED_TOKENS: %s ↔ %s (try abbr fallback)", raw, fuzzy_match)
             fuzzy_match = None
         elif conflict:
-            if debug: logger.debug(f"[fuzzy ×] semantic conflict: {raw} ↔ {fuzzy_match} (try abbr fallback)")
+            if debug:
+                logger.debug("[fuzzy ×] semantic conflict: %s ↔ %s (try abbr fallback)", raw, fuzzy_match)
             fuzzy_match = None
         else:
-            if debug: logger.debug(f"[fuzzy ✓] '{raw}' → '{fuzzy_match}'")
+            if debug:
+                logger.debug("[fuzzy ✓] %r → %r", raw, fuzzy_match)
             return fuzzy_match
 
     # 4b) Abbreviation (consonant-skeleton) fallback for short alpha tokens
     if len(raw) in (3, 4) and raw.isalpha():
 
-        def _sk(s: str, vowels: Set[str]) -> str:
-            return "".join(ch for ch in s if ch not in vowels)
+        @lru_cache(maxsize=8_192)
+        def _sk_cons(s: str) -> str:
+            return "".join(ch for ch in s if ch not in VOWELS_CONS)
 
-        target = _sk(raw, VOWELS_CONS)
+        @lru_cache(maxsize=8_192)
+        def _sk_vow(s: str) -> str:
+            return "".join(ch for ch in s if ch not in VOWELS_VOW)
 
-        best = None
+        target = _sk_cons(raw)
+
+        best: str | None = None
         # Prefer modifiers over tones; among same type prefer shorter, then lexicographic
-        best_score = (-1, 10**9, "")
+        best_score: tuple[int, int, str] = (-1, 10**9, "")
 
         for cand in combined_known:
             if not cand:
@@ -293,24 +337,32 @@ def _recover_base_impl(
                 continue
             if len(cand) < len(raw) or len(cand) > 8:
                 continue
-            if _sk(cand, VOWELS_CONS) == target or _sk(cand, VOWELS_VOW) == target:
+            if _sk_cons(cand) == target or _sk_vow(cand) == target:
                 is_mod = 1 if cand in known_modifiers else 0
                 score = (is_mod, len(cand), cand)
-                if (score[0] > best_score[0]) or (score[0] == best_score[0] and score[1] < best_score[1]) or (score[0] == best_score[0] and score[1] == best_score[1] and score[2] < best_score[2]):
+                if (
+                    score[0] > best_score[0]
+                    or (score[0] == best_score[0] and score[1] < best_score[1])
+                    or (score[0] == best_score[0] and score[1] == best_score[1] and score[2] < best_score[2])
+                ):
                     best = cand
                     best_score = score
 
         if best:
             if (raw, best) in BLOCKED_TOKENS or (best, raw) in BLOCKED_TOKENS:
-                if debug: logger.debug(f"[abbr ×] blocked by BLOCKED_TOKENS: {raw} ↔ {best}")
+                if debug:
+                    logger.debug("[abbr ×] blocked by BLOCKED_TOKENS: %s ↔ %s", raw, best)
                 return None
             if _is_semantic_conflict(raw, best):
-                if debug: logger.debug(f"[abbr ×] semantic conflict: {raw} ↔ {best}")
+                if debug:
+                    logger.debug("[abbr ×] semantic conflict: %s ↔ %s", raw, best)
                 return None
-            if debug: logger.debug(f"[abbr ✓] '{raw}' → '{best}' (consonant skeleton)")
+            if debug:
+                logger.debug("[abbr ✓] %r → %r (consonant skeleton)", raw, best)
             return best
 
-    if debug: logger.debug(f"[no-match] '{raw}'")
+    if debug:
+        logger.debug("[no-match] %r", raw)
     return None
 
 
@@ -321,11 +373,11 @@ def _recover_base_impl(
 def _call_suffix_func(
     func,
     raw: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
-    """Does: Call a suffix recovery func with flexible signature. Returns: Result or None."""
+) -> str | None:
+    """Does: Call a suffix recovery function with flexible signature. Returns: Result or None."""
     try:
         return func(raw, known_modifiers, known_tones, debug=debug)
     except TypeError:
@@ -338,7 +390,7 @@ def _call_suffix_func(
                 return None
 
 
-def _is_known_token(tok: str, known_modifiers: Set[str], known_tones: Set[str]) -> bool:
+def _is_known_token(tok: str, known_modifiers: set[str], known_tones: set[str]) -> bool:
     return tok in known_modifiers or tok in known_tones
 
 
@@ -359,7 +411,7 @@ def _is_semantic_conflict(a: str, b: str) -> bool:
     return False
 
 
-def _match_override(tok: str, known_modifiers: Set[str], known_tones: Set[str]) -> Optional[str]:
+def _match_override(tok: str, known_modifiers: set[str], known_tones: set[str]) -> str | None:
     """Does: Apply RECOVER_BASE_OVERRIDES (dict or iterable of (src,dst)/sets). Returns: Base or None."""
     if isinstance(RECOVER_BASE_OVERRIDES, dict):
         base = RECOVER_BASE_OVERRIDES.get(tok)
