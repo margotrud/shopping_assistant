@@ -107,11 +107,16 @@ def build_ey_variant(base: str, raw: str, debug: bool = False) -> Optional[str]:
         if debug:
             log.debug("[allowlist -ey] %s/%s -> %s", raw, base, _ey(base))
         return _ey(base)
-    # 2) constrained sibilant endings
-    if len(base) > 2 and base.endswith(("ge", "ce", "ze", "se")):
+
+    # 2) resserrer la règle sibilante:
+    #    - Appliquer '-ey' UNIQUEMENT aux finales 'ge' et 'ze'
+    #      (ex: beige -> beigey, bronze -> bronzey).
+    #    - Laisser 'ce' / 'se' passer par les règles '-y' (ex: fleece -> fleecy, juice -> juicy).
+    if len(base) > 2 and base.endswith(("ge", "ze")):
         if debug:
             log.debug("[rule -ey] %s -> %s", base, _ey(base))
         return _ey(base)
+
     if debug:
         log.debug("[deny -ey] %s (raw=%s)", base, raw)
     return None
