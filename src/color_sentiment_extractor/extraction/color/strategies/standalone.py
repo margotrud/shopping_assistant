@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 # ── Domain imports ───────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
 from color_sentiment_extractor.extraction.color.recovery import _extract_filtered_tokens
-from color_sentiment_extractor.extraction.general.expression import _inject_expression_modifiers
+from color_sentiment_extractor.extraction.general.expression.expression_helpers import _inject_expression_modifiers
 from color_sentiment_extractor.extraction.general.token import normalize_token
 
 
