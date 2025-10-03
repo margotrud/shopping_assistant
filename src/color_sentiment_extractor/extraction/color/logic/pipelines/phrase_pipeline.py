@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
     ratio = _fuzz.ratio
 
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS, COSMETIC_NOUNS
-from color_sentiment_extractor.extraction.color.logic import process_color_phrase
+from .rgb_pipeline import process_color_phrase
 from color_sentiment_extractor.extraction.color.strategies import (
     extract_compound_phrases,
     extract_lone_tones,
