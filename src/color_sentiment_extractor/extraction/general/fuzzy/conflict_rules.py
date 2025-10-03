@@ -12,10 +12,8 @@ Used by: Fuzzy/alias validation and conflict resolution steps in extraction pipe
 import logging
 import re
 
-from color_sentiment_extractor.extraction.general.token import (
-    normalize_token,
-    recover_base,
-)
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+
 
 __all__ = [
     "is_negation_conflict",
@@ -63,6 +61,8 @@ def is_negation_conflict(a: str, b: str) -> bool:
     Does: True if one string is a simple negation of the other (e.g., "no shimmer" vs "shimmer"),
           comparing also on recovered bases for robustness ("shimmers"/"shimmery" vs "shimmer").
     """
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+
     if not a or not b:
         return False
 

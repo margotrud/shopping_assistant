@@ -17,6 +17,7 @@ from .llm_api_client import (
     get_llm_client,
     has_api_key,
     query_llm_for_rgb,
+    build_color_prompt,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "get_llm_client",
     "has_api_key",
     "query_llm_for_rgb",
+    "build_color_prompt",
 ]
 
 # Keep docformat explicit for tooling consistency.

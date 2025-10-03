@@ -16,11 +16,10 @@ from typing import Iterable, Optional, Set
 
 from rapidfuzz import fuzz  # performant, no numpy dependency
 
-from color_sentiment_extractor.extraction.general.fuzzy import (
-    fuzzy_token_score,   # custom project scorer (kept)
-    is_negation_conflict,
-)
-from color_sentiment_extractor.extraction.general.token import normalize_token
+# éviter tout import depuis le package '...fuzzy' (sinon boucle)
+from .scoring import fuzzy_token_score
+from .conflict_rules import is_negation_conflict
+
 
 __all__ = [
     "collapse_duplicates",
@@ -46,6 +45,19 @@ LENGTH_DELTA_SKIP = 2  # pre-filter for best-match loop
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+def _norm_token(text: str, *, keep_hyphens: bool = False) -> str:
+    """
+    Lazy normalize: tente d'utiliser normalize_token; sinon fallback local.
+    """
+    try:
+        from color_sentiment_extractor.extraction.general.token import normalize_token as _nt
+        return _nt(text, keep_hyphens=keep_hyphens)
+    except Exception:
+        t = (text or "").lower().strip()
+        if not keep_hyphens:
+            t = t.replace("-", " ")
+        t = t.replace("_", " ")
+        return " ".join(t.split())
 
 def collapse_duplicates(s: str) -> str:
     """
@@ -92,20 +104,20 @@ def _in_conflict_groups(a: str, b: str, groups: Optional[Iterable]) -> bool:
     """
     if not groups:
         return False
-    a = normalize_token(a)
-    b = normalize_token(b)
+    a = _norm_token(a)
+    b = _norm_token(b)
     try:
         if isinstance(groups, dict):
             for k, v in groups.items():
-                s = {normalize_token(k)} | {
-                    normalize_token(x)
+                s = {_norm_token(k)} | {
+                    _norm_token(x)
                     for x in (v if isinstance(v, (list, tuple, set, frozenset)) else [v])
                 }
                 if a in s and b in s and a != b:
                     return True
         else:
             for g in groups:
-                s = {normalize_token(x) for x in (g if isinstance(g, (list, tuple, set, frozenset)) else [g])}
+                s = {_norm_token(x) for x in (g if isinstance(g, (list, tuple, set, frozenset)) else [g])}
                 if a in s and b in s and a != b:
                     return True
     except Exception:
@@ -131,8 +143,8 @@ def fuzzy_token_match(a: str, b: str) -> float:
     except Exception:
         _recover_base = None
 
-    a = normalize_token(a, keep_hyphens=True)
-    b = normalize_token(b, keep_hyphens=True)
+    a = _norm_token(a, keep_hyphens=True)
+    b = _norm_token(b, keep_hyphens=True)
 
     if a == b or is_single_transposition(a, b):
         return 100.0
@@ -160,8 +172,8 @@ def is_strong_fuzzy_match(
     Does: Strong match test with conflict/negation guards.
     Returns: True iff score ≥ threshold and no conflict.
     """
-    a_norm = normalize_token(a, keep_hyphens=True)
-    b_norm = normalize_token(b, keep_hyphens=True)
+    a_norm = _norm_token(a, keep_hyphens=True)
+    b_norm = _norm_token(b, keep_hyphens=True)
 
     if _in_conflict_groups(a_norm, b_norm, conflict_groups):
         return False
@@ -177,7 +189,7 @@ def is_exact_match(a: str, b: str) -> bool:
     Returns: Boolean.
     """
     def clean(text: str) -> str:
-        norm = normalize_token(text, keep_hyphens=True)
+        norm = _norm_token(text, keep_hyphens=True)
         return re.sub(r"[^a-z0-9]", "", norm.lower())
 
     a_c = clean(a)

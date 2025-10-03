@@ -19,10 +19,8 @@ from typing import FrozenSet, Optional, Set
 # ── Imports ──────────────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
 from color_sentiment_extractor.extraction.general.fuzzy import rhyming_conflict
-from color_sentiment_extractor.extraction.general.token import (
-    recover_base,
-    normalize_token,
-)
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+
 from color_sentiment_extractor.extraction.general.utils import load_config
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -47,6 +45,8 @@ def _get_known_tones() -> FrozenSet[str]:
 
 def _common_base(a_norm: str, t_norm: str, *, km: Set[str], kt: Set[str]) -> Optional[str]:
     """Does: Return shared base if both reduce to the same known base, else None."""
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+
     base_a = recover_base(a_norm, known_modifiers=km, known_tones=kt, debug=False, fuzzy_fallback=False)
     base_t = recover_base(t_norm, known_modifiers=km, known_tones=kt, debug=False, fuzzy_fallback=False)
     if base_a and base_t and (base_a == base_t) and (base_a in km or base_a in kt):
@@ -71,6 +71,7 @@ def is_suffix_root_match(
     Returns:
         True iff they share a known base and at least one was transformed from its base.
     """
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
     if not alias or not token:
         return False
 

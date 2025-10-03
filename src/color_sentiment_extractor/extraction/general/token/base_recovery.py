@@ -20,7 +20,7 @@ Notes:
 """
 
 from functools import lru_cache
-from typing import Iterable
+from typing import Iterable, Optional, FrozenSet
 import logging
 
 from color_sentiment_extractor.extraction.color.constants import (
@@ -28,8 +28,10 @@ from color_sentiment_extractor.extraction.color.constants import (
     SEMANTIC_CONFLICTS,
     BLOCKED_TOKENS,
 )
+
 from color_sentiment_extractor.extraction.general.fuzzy import fuzzy_match_token_safe
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+from color_sentiment_extractor.extraction.color.vocab import get_known_tones as _vocab_get_known_tones
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config, ConfigFileNotFound
 
 # Suffix registry (ordered list) + optional suffix-aware dispatcher
 from color_sentiment_extractor.extraction.general.token.suffix.registry import (
@@ -61,7 +63,94 @@ VOWELS_VOW:  set[str] = set("aeiouy")  # y as vowel
 
 # Canonical sets (loaded from validated config)
 KNOWN_MODIFIERS: set[str] = load_config("known_modifiers", mode="set")
-KNOWN_TONES:     set[str] = load_config("known_tones",     mode="set")
+KNOWN_TONES:   set[str] = set(_vocab_get_known_tones())
+
+# ──────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────
+
+@lru_cache(maxsize=1)
+def _get_default_known_tones() -> frozenset[str]:
+    # Vient du vocab (CSS + XKCD + fallbacks), pas du JSON disque
+    return frozenset(_vocab_get_known_tones())
+
+@lru_cache(maxsize=1)
+def _get_default_known_modifiers() -> frozenset[str]:
+    # Prend known_modifiers depuis data/ si présent, sinon set vide (safe)
+    try:
+        return frozenset(load_config("known_modifiers", mode="set"))
+    except ConfigFileNotFound:
+        return frozenset()
+
+def _call_suffix_func(
+    func,
+    raw: str,
+    known_modifiers: set[str],
+    known_tones: set[str],
+    debug: bool = False,
+) -> str | None:
+    """Does: Call a suffix recovery function with flexible signature. Returns: Result or None."""
+    try:
+        return func(raw, known_modifiers, known_tones, debug=debug)
+    except TypeError:
+        try:
+            return func(raw, known_modifiers, known_tones)
+        except TypeError:
+            try:
+                return func(raw)
+            except TypeError:
+                return None
+
+
+def _is_known_token(tok: str, known_modifiers: set[str], known_tones: set[str]) -> bool:
+    return tok in known_modifiers or tok in known_tones
+
+
+def _is_semantic_conflict(a: str, b: str) -> bool:
+    if not a or not b or a == b:
+        return False
+    al, bl = a.lower(), b.lower()
+    if isinstance(SEMANTIC_CONFLICTS, dict):
+        for k, vs in SEMANTIC_CONFLICTS.items():
+            group = {str(k).lower(), *[str(v).lower() for v in (vs if isinstance(vs, Iterable) else [vs])]}
+            if al in group and bl in group and al != bl:
+                return True
+    else:
+        for group in SEMANTIC_CONFLICTS:
+            g = {str(x).lower() for x in (group if isinstance(group, Iterable) else [group])}
+            if al in g and bl in g and al != bl:
+                return True
+    return False
+
+
+def _match_override(tok: str, known_modifiers: set[str], known_tones: set[str]) -> str | None:
+    """Does: Apply RECOVER_BASE_OVERRIDES (dict or iterable of (src,dst)/sets). Returns: Base or None."""
+    if isinstance(RECOVER_BASE_OVERRIDES, dict):
+        base = RECOVER_BASE_OVERRIDES.get(tok)
+        if base and (base in known_modifiers or base in known_tones):
+            return base
+    else:
+        for item in RECOVER_BASE_OVERRIDES:
+            if isinstance(item, (tuple, list)) and len(item) == 2:
+                src, dst = item
+                if src == tok and (dst in known_modifiers or dst in known_tones):
+                    return dst
+            elif isinstance(item, (set, frozenset)) and len(item) >= 2 and tok in item:
+                candidates = sorted(
+                    [x for x in item if x in known_modifiers or x in known_tones],
+                    key=lambda s: (len(s), s),
+                )
+                if candidates:
+                    return candidates[0]
+    return None
+
+
+def is_known_modifier(tok: str) -> bool:
+    return tok in KNOWN_MODIFIERS
+
+
+def is_known_tone(tok: str) -> bool:
+    return tok in KNOWN_TONES
 
 
 # ──────────────────────────────────────────────────────────────
@@ -72,6 +161,8 @@ def recover_base(
     token: str,
     *,
     allow_fuzzy: bool = True,
+    known_modifiers: Optional[Iterable[str]] = None,
+    known_tones: Optional[Iterable[str]] = None,
     debug: bool = False,
     **legacy_kwargs,
 ) -> str | None:
@@ -92,8 +183,13 @@ def recover_base(
         allow_fuzzy = legacy_kwargs["fuzzy_fallback"]
 
     # Optional vocab overrides (essaitests2/back-compat)
-    km = legacy_kwargs.get("known_modifiers", KNOWN_MODIFIERS)
-    kt = legacy_kwargs.get("known_tones",     KNOWN_TONES)
+    km: FrozenSet[str] = (
+        frozenset(known_modifiers) if known_modifiers is not None else _get_default_known_modifiers()
+    )
+    kt: FrozenSet[str] = (
+        frozenset(known_tones) if known_tones is not None else _get_default_known_tones()
+    )
+
     fuzzy_threshold = int(legacy_kwargs.get("fuzzy_threshold", _DEFAULT_FUZZY_THRESHOLD))
 
     # Normalize vocab to sets once
@@ -366,76 +462,3 @@ def _recover_base_impl(
     return None
 
 
-# ──────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────
-
-def _call_suffix_func(
-    func,
-    raw: str,
-    known_modifiers: set[str],
-    known_tones: set[str],
-    debug: bool = False,
-) -> str | None:
-    """Does: Call a suffix recovery function with flexible signature. Returns: Result or None."""
-    try:
-        return func(raw, known_modifiers, known_tones, debug=debug)
-    except TypeError:
-        try:
-            return func(raw, known_modifiers, known_tones)
-        except TypeError:
-            try:
-                return func(raw)
-            except TypeError:
-                return None
-
-
-def _is_known_token(tok: str, known_modifiers: set[str], known_tones: set[str]) -> bool:
-    return tok in known_modifiers or tok in known_tones
-
-
-def _is_semantic_conflict(a: str, b: str) -> bool:
-    if not a or not b or a == b:
-        return False
-    al, bl = a.lower(), b.lower()
-    if isinstance(SEMANTIC_CONFLICTS, dict):
-        for k, vs in SEMANTIC_CONFLICTS.items():
-            group = {str(k).lower(), *[str(v).lower() for v in (vs if isinstance(vs, Iterable) else [vs])]}
-            if al in group and bl in group and al != bl:
-                return True
-    else:
-        for group in SEMANTIC_CONFLICTS:
-            g = {str(x).lower() for x in (group if isinstance(group, Iterable) else [group])}
-            if al in g and bl in g and al != bl:
-                return True
-    return False
-
-
-def _match_override(tok: str, known_modifiers: set[str], known_tones: set[str]) -> str | None:
-    """Does: Apply RECOVER_BASE_OVERRIDES (dict or iterable of (src,dst)/sets). Returns: Base or None."""
-    if isinstance(RECOVER_BASE_OVERRIDES, dict):
-        base = RECOVER_BASE_OVERRIDES.get(tok)
-        if base and (base in known_modifiers or base in known_tones):
-            return base
-    else:
-        for item in RECOVER_BASE_OVERRIDES:
-            if isinstance(item, (tuple, list)) and len(item) == 2:
-                src, dst = item
-                if src == tok and (dst in known_modifiers or dst in known_tones):
-                    return dst
-            elif isinstance(item, (set, frozenset)) and len(item) >= 2 and tok in item:
-                candidates = sorted(
-                    [x for x in item if x in known_modifiers or x in known_tones],
-                    key=lambda s: (len(s), s),
-                )
-                if candidates:
-                    return candidates[0]
-    return None
-
-
-def is_known_modifier(tok: str) -> bool:
-    return tok in KNOWN_MODIFIERS
-
-
-def is_known_tone(tok: str) -> bool:
-    return tok in KNOWN_TONES

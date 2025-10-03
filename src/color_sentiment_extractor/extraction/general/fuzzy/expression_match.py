@@ -18,7 +18,7 @@ from typing import Dict, List, Set, Tuple
 from rapidfuzz import fuzz  # performant, no numpy dependency
 
 from color_sentiment_extractor.extraction.general.utils import load_config
-from color_sentiment_extractor.extraction.general.token import (
+from color_sentiment_extractor.extraction.general.token.normalize import (
     normalize_token,
     get_tokens_and_counts,
 )

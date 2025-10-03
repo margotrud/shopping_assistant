@@ -22,10 +22,8 @@ from color_sentiment_extractor.extraction.general.fuzzy import (
     rhyming_conflict,
     fuzzy_token_overlap_count,
 )
-from color_sentiment_extractor.extraction.general.token import (
-    recover_base,
-    normalize_token,
-)
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
+
 from color_sentiment_extractor.extraction.color.recovery import is_suffix_root_match
 
 __all__ = [
@@ -73,6 +71,8 @@ def is_token_fuzzy_match(
     Does: Check if alias matches any token via fuzzy or suffix/root equivalence with rhyme/semantic guards.
     Returns: True iff a safe match is found.
     """
+    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+
     a = (alias or "").strip().lower()
     if not a:
         if debug:

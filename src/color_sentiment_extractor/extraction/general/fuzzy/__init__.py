@@ -32,17 +32,6 @@ from .conflict_rules import (
     is_negation_conflict,
 )
 
-# ── Alias validation ────────────────────────────────────────────────────────
-from .alias_validation import (
-    _handle_multiword_alias,
-    is_valid_singleword_alias,
-)
-
-# ── Expression matching ─────────────────────────────────────────────────────
-from .expression_match import (
-    cached_match_expression_aliases,
-    match_expression_aliases,
-)
 
 __all__ = [
     # Core
@@ -58,13 +47,7 @@ __all__ = [
     "rhyming_conflict",
     "fuzzy_token_overlap_count",
     # Conflict
-    "is_negation_conflict",
-    # Alias
-    "_handle_multiword_alias",
-    "is_valid_singleword_alias",
-    # Expressions
-    "cached_match_expression_aliases",
-    "match_expression_aliases",
+    "is_negation_conflict"
 ]
 
 __docformat__ = "google"
