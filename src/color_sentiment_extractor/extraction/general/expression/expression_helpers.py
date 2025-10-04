@@ -51,6 +51,7 @@ from color_sentiment_extractor.extraction.general.token import (
 from color_sentiment_extractor.extraction.general.fuzzy import (
     match_expression_aliases,
 )
+from color_sentiment_extractor.extraction.color.vocab import get_all_webcolor_names
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 log = logging.getLogger(__name__)
@@ -75,18 +76,6 @@ def _get_known_modifiers() -> Set[str]:
 @lru_cache(maxsize=1)
 def _get_known_tones() -> Set[str]:
     return frozenset(load_config("known_tones", mode="set"))
-
-@lru_cache(maxsize=1)
-def _get_all_webcolor_names() -> Set[str]:
-    # Tente plusieurs clés de config courantes pour robustesse.
-    for key in ("webcolors_all", "all_webcolor_names", "webcolor_names"):
-        try:
-            vals = load_config(key, mode="set")
-            if vals:
-                return frozenset(vals)
-        except Exception:
-            pass
-    return frozenset()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -547,13 +536,9 @@ def apply_expression_suppression_rules(matched: Set[str]) -> Set[str]:
 
 @lru_cache(maxsize=1)
 def get_glued_token_vocabulary() -> Set[str]:
-    """
-    Does: Return full vocab for glued-token splitting (tones + modifiers + webcolor names).
-    Returns: Set of tokens (normalized, hyphens preserved).
-    """
     known_modifiers = _get_known_modifiers()
     known_tones = _get_known_tones()
-    webcolors = _get_all_webcolor_names()
+    webcolors = get_all_webcolor_names()
     return frozenset({
         *(_norm(x) for x in known_tones),
         *(_norm(x) for x in known_modifiers),

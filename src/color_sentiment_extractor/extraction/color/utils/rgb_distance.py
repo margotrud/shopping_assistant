@@ -34,24 +34,11 @@ logger = logging.getLogger(__name__)
 # ── Types ─────────────────────────────────────────────────────────────────────
 RGB = Tuple[int, int, int]
 
-# ✔ pull webcolor names via color package (re-exported by color/__init__.py)
-from color_sentiment_extractor.extraction.color import all_webcolor_names
-# Prefer explicit path unless token/__init__.py re-exports normalize_token
+from color_sentiment_extractor.extraction.color.vocab import get_all_webcolor_names
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 
-def _get_all_webcolor_names() -> List[str]:
-    """Does: Normalize access to webcolor name list (supports var or callable)."""
-    try:
-        if callable(all_webcolor_names):
-            names = all_webcolor_names()
-        else:
-            names = all_webcolor_names  # type: ignore[assignment]
-        if isinstance(names, Iterable):
-            return list(names)
-    except Exception:
-        logger.debug("Failed to read all_webcolor_names; returning empty list", exc_info=True)
-    return []
+
 
 
 # =============================================================================
@@ -193,7 +180,7 @@ def fuzzy_match_rgb_from_known_colors(
     """Does: Fuzzy match phrase to a known webcolor name."""
     import difflib
     q = normalize_token(phrase).replace("-", " ")
-    names = _get_all_webcolor_names()
+    names = get_all_webcolor_names()
     candidates = difflib.get_close_matches(q, names, n=n, cutoff=cutoff)
     return candidates[0] if candidates else None
 
