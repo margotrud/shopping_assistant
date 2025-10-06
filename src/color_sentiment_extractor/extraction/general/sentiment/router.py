@@ -54,12 +54,21 @@ RGB_THRESHOLD_MAX: float = _env_float("RGB_THRESHOLD_MAX", 75.0)
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
     """
-    Case-insensitive, whitespace-trimmed, duplicate-free ordering
-    suitable for our token set.
+    Case-insensitive, whitespace-trimmed, duplicate-free ordering.
+    Dedup is done with casefold(); original casing of first occurrence is preserved.
     """
-    # Use set comprehension for clarity; casefold for stable ordering.
-    unique = {s.strip() for s in items if s and s.strip()}
-    return sorted(unique, key=str.casefold)
+    canon: dict[str, str] = {}
+    for s in items:
+        if not s:
+            continue
+        t = s.strip()
+        if not t:
+            continue
+        key = t.casefold()
+        # preserve first-seen original casing
+        canon.setdefault(key, t)
+    # sort by case-insensitive key to keep deterministic order
+    return [canon[k] for k in sorted(canon.keys())]
 
 def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> float:
     """
