@@ -1,6 +1,8 @@
 # src/color_sentiment_extractor/extraction/general/expression/expression_helpers.py
 from __future__ import annotations
 
+from color_sentiment_extractor.extraction.general.fuzzy.expression_match import match_expression_aliases
+
 """
 expression_helpers.py
 =====================
@@ -48,9 +50,7 @@ from color_sentiment_extractor.extraction.general.token import (
     normalize_token,
     recover_base,
 )
-from color_sentiment_extractor.extraction.general.fuzzy import (
-    match_expression_aliases,
-)
+
 from color_sentiment_extractor.extraction.color.vocab import get_all_webcolor_names
 
 # ── Logging ──────────────────────────────────────────────────────────────────
