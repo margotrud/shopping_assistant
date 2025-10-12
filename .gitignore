@@ -23,6 +23,7 @@ venv/
 # --- Coverage / Tests ---
 .pytest_cache/
 .coverage
+coverage_html/
 htmlcov/
 .cache/
 pytest-cache-files-*/
@@ -41,10 +42,16 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Windows reserved device names
+# --- Windows reserved device names ---
 NUL
 CON
 PRN
 AUX
 COM[1-9]
 LPT[1-9]
+
+# --- Project-specific (optional but safe) ---
+# OneDrive temp files (seen in your setup)
+_UL/
+# Local configs or sandbox data
+*.env.local
