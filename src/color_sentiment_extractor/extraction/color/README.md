@@ -1,25 +1,43 @@
-# Color
+# 🎨 Color Extraction Module
 
-## Does
-Core package for color phrase extraction, normalization, and RGB resolution.  
-Implements strategies, recovery flows, suffix rules, and utilities that connect descriptive tokens to standardized color names and values.
+**Does:** Extract, normalize, and resolve color phrases (tones + modifiers) from text,  
+mapping them to RGB values through deterministic rules and LLM-based fallbacks.  
+**Used by:** `orchestrator.py` and sentiment routing pipelines.
 
-## Submodules
-- **llm/** : Query language models to resolve descriptive phrases into RGB values.  
-- **logic/** : Orchestration pipelines for RGB resolution and tone–modifier mappings.  
-- **recovery/** : Recovery strategies for noisy or ambiguous tokens (suffix, fuzzy, LLM).  
-- **strategies/** : Extraction strategies (compound phrases, standalone tones).  
-- **suffix/** : Rules and helpers for suffix generation and base recovery.  
-- **token/** : Token utilities (normalization, splitting, base recovery).  
-- **utils/** : Color-specific helpers (RGB distance, representative choice, etc.).  
-- **constants.py** : Domain constants used across color extraction.  
-- **vocab.py** : Curated vocabularies of tones, modifiers, and webcolor names.  
-- **__init__.py** : Public API surface for color extraction components.
+---
 
-## Returns
-Provides stable building blocks for higher-level flows:  
-- Phrase → (modifier, tone) parsing  
-- Token → base form recovery  
-- Phrase → RGB resolution (CSS/XKCD + LLM fallback)  
+## 🧩 Submodules Overview
 
-These modules are imported by orchestrators and sentiment pipelines to support end-to-end color sentiment extraction.
+| Submodule | Purpose |
+|------------|----------|
+| `llm/` | Queries an LLM to normalize and resolve descriptive color phrases into RGB tuples. |
+| `logic/classification/` | Builds strict tone↔modifier mappings; filters cosmetic nouns and invalid pairs. |
+| `logic/pipelines/` | Orchestrates phrase extraction and RGB resolution (rules → LLM → DB/fuzzy). |
+| `recovery/` | Recovers canonical color tokens via suffix, fuzzy, or LLM-assisted methods. |
+| `strategies/` | Extracts compound (`dusty rose`) and standalone (`rose`) color phrases. |
+| `suffix/` | Handles morphological variants like `dusty`, `pinkish`, `bronzey`, etc. |
+| `token/` | Splits glued tokens, normalizes forms, applies suffix-aware recovery. |
+| `utils/` | Shared helpers: RGB math, distance metrics, fuzzy name matching. |
+| `constants.py` | Domain constants (blocked tokens, tone/modifier lists). |
+| `vocab.py` | Loads and validates curated color vocabularies. |
+
+---
+
+## ⚙️ Processing Flow
+
+1. **Token normalization** – lowercase, strip, recover base forms.  
+2. **Suffix & fuzzy recovery** – detect variants like `rosy → rose`.  
+3. **Compound extraction** – combine modifiers and tones.  
+4. **Phrase validation** – filter cosmetic nouns, blocked pairs, conflicts.  
+5. **RGB resolution** – lookup CSS/XKCD or query the LLM fallback.  
+6. **Aggregation** – merge results into consistent JSON-ready outputs.
+
+---
+
+## 🧠 Example
+
+```python
+from color_sentiment_extractor.extraction.color.logic.pipelines import rgb_pipeline
+
+rgb = rgb_pipeline.resolve("dusty rose")
+print(rgb)  # → (231, 180, 188)
