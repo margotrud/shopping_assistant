@@ -1,6 +1,22 @@
 [run]
 branch = True
-source = Chatbot/extraction/general/utils
+source =
+    src/color_sentiment_extractor
+omit =
+    */__init__.py
+    */tests/*
+    */demo.py
+    */data/*
+    */__main__.py
+
 [report]
 show_missing = True
 skip_empty = True
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+
+[html]
+directory = coverage_html
+title = Color Sentiment Extractor Coverage
