@@ -15,17 +15,10 @@
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
 </p>
 
-
 Given text like _“I love bright red but I hate purple”_, this project:
 - extracts **color mentions** (single tones and compound phrases),
 - splits them by **positive vs negative** sentiment,
 - resolves each color name to **RGB** (CSS/XKCD first, LLM fallback).
-
-<p>
-  <a href="https://github.com/margotrud/shopping_assistant/actions">
-    <img src="https://github.com/margotrud/shopping_assistant/actions/workflows/tests.yml/badge.svg" alt="CI status">
-  </a>
-</p>
 
 ---
 
@@ -40,16 +33,19 @@ python -m spacy download en_core_web_sm
 
 # 3) Run demo
 cse-demo "I love bright red but I hate purple"
+```
 
-
+---
 
 ## 📊 Demo Output (example)
 
 Input:
 ```text
 "I love bright red but I hate purple"
+```
 
 Output:
+```json
 {
   "positif": [
     {"name": "bright red", "rgb": [255, 0, 13]},
@@ -77,9 +73,24 @@ Output:
     {"name": "dimgray", "rgb": [105, 105, 105]}
   ]
 }
+```
 
+---
 
-🗂️ Project Structure
+## ✨ Highlights for Recruiters
+
+- **End-to-end NLP pipeline** combining rule-based parsing, fuzzy logic, and suffix recovery.  
+- **Data-driven color reasoning**: maps language to RGB through hybrid lookup (CSS/XKCD + LLM).  
+- **Typed, tested, and CI-validated**: 100 % type coverage (mypy) + full pytest suite + GitHub Actions.  
+- **Optimized architecture** with modular extractors, caching (LRU), and time-budget safeguards.  
+- **Config-driven vocabulary system** for tones/modifiers, enabling realistic linguistic coverage.  
+- **Clean packaging** (`src/` layout, editable install, coverage + badges, MIT License).  
+
+---
+
+## 🗂️ Project Structure
+
+```
 shopping_assistant_V6/
 ├── Chatbot/                   # Core extraction logic
 │   ├── extraction/            # NLP + color pipelines
@@ -96,24 +107,32 @@ shopping_assistant_V6/
 ├── .gitignore                 # Ignore cache, venv, etc.
 ├── .coveragerc                # Test coverage configuration
 └── pytest.ini                 # Pytest configuration
+```
 
+---
 
-## ⚙️ How it Works (High Level)
+## ⚙️ How It Works (High Level)
 
-1. **Tokenization (SpaCy)** – Sentences are parsed into tokens with POS tagging.
-2. **Negation Detection** – Finds positive vs. negative context.
-3. **Color Extraction** – Identifies modifiers ("bright", "dark") + tones ("red", "purple").
-4. **Normalization & Recovery** – Handles suffixes, fuzzy matches, and known synonyms.
-5. **RGB Resolution**
-   - First: matches against CSS/XKCD color databases.
-   - Fallback: calls LLM to approximate an RGB triplet.
-6. **Output** – JSON with `positif` and `negatif` colors.
+1. **Tokenization (SpaCy)** – Sentences are parsed into tokens with POS tagging.  
+2. **Negation Detection** – Finds positive vs. negative context.  
+3. **Color Extraction** – Identifies modifiers (“bright”, “dark”) + tones (“red”, “purple”).  
+4. **Normalization & Recovery** – Handles suffixes, fuzzy matches, and known synonyms.  
+5. **RGB Resolution**  
+   - First: matches against CSS/XKCD color databases.  
+   - Fallback: calls LLM to approximate an RGB triplet.  
+6. **Output** – JSON with `positif` and `negatif` colors.  
 
+---
 
-✅ Tests
+## ✅ Tests
+
 Run all tests with:
+```bash
 pytest -q
+```
 
-📜 License
+---
+
+## 📜 License
+
 MIT License – free to use, modify, and share.
-
