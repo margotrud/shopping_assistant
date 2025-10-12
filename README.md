@@ -17,7 +17,7 @@
 
 Given text like _“I love bright red but I hate purple”_, this project:
 - extracts **color mentions** (single tones and compound phrases),
-- splits them by **positive vs negative** sentiment,
+- splits them by **positive vs. negative** sentiment,
 - resolves each color name to **RGB** (CSS/XKCD first, LLM fallback).
 
 ---
@@ -37,7 +37,7 @@ cse-demo "I love bright red but I hate purple"
 
 ---
 
-## 📊 Demo Output (example)
+## 📊 Demo Output
 
 Input:
 ```text
@@ -47,7 +47,7 @@ Input:
 Output:
 ```json
 {
-  "positif": [
+  "positive": [
     {"name": "bright red", "rgb": [255, 0, 13]},
     {"name": "red", "rgb": [255, 0, 0]},
     {"name": "crimson", "rgb": [220, 20, 60]},
@@ -60,7 +60,7 @@ Output:
     {"name": "maroon", "rgb": [128, 0, 0]},
     {"name": "sienna", "rgb": [160, 82, 45]}
   ],
-  "negatif": [
+  "negative": [
     {"name": "purple", "rgb": [128, 0, 128]},
     {"name": "darkmagenta", "rgb": [139, 0, 139]},
     {"name": "indigo", "rgb": [75, 0, 130]},
@@ -81,9 +81,9 @@ Output:
 
 - **End-to-end NLP pipeline** combining rule-based parsing, fuzzy logic, and suffix recovery.  
 - **Data-driven color reasoning**: maps language to RGB through hybrid lookup (CSS/XKCD + LLM).  
-- **Typed, tested, and CI-validated**: 100 % type coverage (mypy) + full pytest suite + GitHub Actions.  
+- **Typed, tested, and CI-validated**: full pytest suite, mypy typing, and GitHub Actions integration.  
 - **Optimized architecture** with modular extractors, caching (LRU), and time-budget safeguards.  
-- **Config-driven vocabulary system** for tones/modifiers, enabling realistic linguistic coverage.  
+- **Config-driven vocabulary system** for tones/modifiers with realistic linguistic coverage.  
 - **Clean packaging** (`src/` layout, editable install, coverage + badges, MIT License).  
 
 ---
@@ -91,42 +91,35 @@ Output:
 ## 🗂️ Project Structure
 
 ```
-shopping_assistant_V6/
-├── Chatbot/                   # Core extraction logic
-│   ├── extraction/            # NLP + color pipelines
-│   │   ├── color/             # Color-specific logic
-│   │   └── general/           # General token/recovery utils
-│   ├── __init__.py
-│   └── orchestrator.py        # Main orchestrator
-├── tests/                     # Pytest-based test suite
-│   └── test_smoke.py
-├── demo.py                    # Quick demo script
-├── requirements.txt           # Dependencies
-├── README.md                  # Project documentation
-├── LICENSE                    # MIT License
-├── .gitignore                 # Ignore cache, venv, etc.
-├── .coveragerc                # Test coverage configuration
-└── pytest.ini                 # Pytest configuration
+color-sentiment-extractor/
+├── src/
+│   └── color_sentiment_extractor/    # Core extraction logic (color + general)
+├── tests/                            # Pytest suite
+├── README.md                         # Documentation
+├── LICENSE                           # MIT License
+├── pyproject.toml                    # Build system + metadata
+├── .pre-commit-config.yaml           # Linting & formatting hooks
+├── .coveragerc                       # Coverage configuration
+└── pytest.ini                        # Pytest configuration
 ```
 
 ---
 
-## ⚙️ How It Works (High Level)
+## ⚙️ How It Works
 
-1. **Tokenization (SpaCy)** – Sentences are parsed into tokens with POS tagging.  
-2. **Negation Detection** – Finds positive vs. negative context.  
+1. **Tokenization (spaCy)** – Sentences are parsed into tokens with POS tagging.  
+2. **Negation Detection** – Splits colors into positive vs. negative context.  
 3. **Color Extraction** – Identifies modifiers (“bright”, “dark”) + tones (“red”, “purple”).  
 4. **Normalization & Recovery** – Handles suffixes, fuzzy matches, and known synonyms.  
 5. **RGB Resolution**  
-   - First: matches against CSS/XKCD color databases.  
-   - Fallback: calls LLM to approximate an RGB triplet.  
-6. **Output** – JSON with `positif` and `negatif` colors.  
+   - Primary: matches against CSS/XKCD color databases.  
+   - Fallback: calls an LLM to approximate an RGB triplet.  
+6. **Output** – JSON with `positive` and `negative` color lists.  
 
 ---
 
 ## ✅ Tests
 
-Run all tests with:
 ```bash
 pytest -q
 ```
@@ -135,4 +128,12 @@ pytest -q
 
 ## 📜 License
 
-MIT License – free to use, modify, and share.
+MIT License – free to use, modify, and share.  
+© 2025 Margot Rudnianski
+
+---
+
+## 💬 Author
+
+**Margot Rudnianski**  
+📫 [LinkedIn](https://www.linkedin.com/in/margotrudnianski) · [GitHub](https://github.com/margotrud)
