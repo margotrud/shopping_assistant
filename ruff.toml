@@ -7,3 +7,5 @@ ignore = [
   "D100","D101","D102","D103","D104","D105","D107",  # docstrings (plus tard)
   "D203","D213",  # pairs incompatibles: on garde D211 et D212
 ]
+
+
