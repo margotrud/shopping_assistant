@@ -10,6 +10,17 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Margot Rudnianski" }]
+keywords = ["nlp", "colors", "sentiment", "spacy", "text-processing"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "Typing :: Typed"
+]
 dependencies = [
   "spacy>=3.7,<4",
   "numpy",
@@ -21,3 +32,26 @@ Homepage = "https://github.com/margotrud/shopping_assistant"
 
 [project.scripts]
 cse-demo = "color_sentiment_extractor.demo:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "coverage",
+  "ruff",
+  "black",
+  "isort",
+  "mypy",
+  "pre-commit"
+]
+
+# --- Setuptools: src/ layout ---
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["color_sentiment_extractor*"]
+
+# Inclure données runtime (si tu as src/color_sentiment_extractor/data/**)
+[tool.setuptools.package-data]
+color_sentiment_extractor = ["data/**/*"]
