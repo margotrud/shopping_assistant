@@ -53,5 +53,10 @@ LPT[1-9]
 # --- Project-specific (optional but safe) ---
 # OneDrive temp files (seen in your setup)
 _UL/
+
 # Local configs or sandbox data
 *.env.local
+
+# --- MyPy / Ruff caches (optional cleanup) ---
+.mypy_cache/
+.ruff_cache/
