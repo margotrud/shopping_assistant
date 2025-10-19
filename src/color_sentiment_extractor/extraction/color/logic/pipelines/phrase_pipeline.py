@@ -83,12 +83,13 @@ def extract_all_descriptive_color_phrases(
     tokens = nlp(text)
 
     phrases: Set[str] = set()
+    raw_compounds: List[Tuple[str, str]] = []  # accumulateur (modifier, tone)
 
     # Compounds
     extract_compound_phrases(
         tokens=tokens,
         compounds=phrases,
-        raw_compounds=None,
+        raw_compounds=raw_compounds,
         known_color_tokens=known_tones,
         known_modifiers=known_modifiers,
         known_tones=known_tones,

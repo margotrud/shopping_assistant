@@ -15,6 +15,7 @@ from .rgb_distance import (
     nearest_color_name,
     fuzzy_match_rgb_from_known_colors,
     _parse_rgb_tuple,
+    _try_simplified_match,
 )
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "nearest_color_name",
     "fuzzy_match_rgb_from_known_colors",
     "_parse_rgb_tuple",
+    "_try_simplified_match",
 ]
 
 __docformat__ = "google"

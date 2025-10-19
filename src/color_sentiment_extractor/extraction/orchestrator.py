@@ -13,29 +13,41 @@ Returns:
 Used by: Product/search flows, color preference UIs, and debugging tools.
 """
 
+import logging
 import os
 import sys
-import logging
 from functools import lru_cache
-from typing import Set, Tuple, Optional, List, Dict
 
 from color_sentiment_extractor.extraction.color.llm import get_llm_client
-from color_sentiment_extractor.extraction.color.logic.pipelines.rgb_pipeline import resolve_rgb_with_llm
-from color_sentiment_extractor.extraction.general.sentiment import analyze_sentence_sentiment
-from color_sentiment_extractor.extraction.color.logic import aggregate_color_phrase_results
-from color_sentiment_extractor.extraction.color.vocab import all_webcolor_names
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-from color_sentiment_extractor.extraction.general.token import recover_base
+from color_sentiment_extractor.extraction.color.logic import (
+    aggregate_color_phrase_results,
+)
+from color_sentiment_extractor.extraction.color.logic.pipelines.rgb_pipeline import (
+    resolve_rgb_with_llm,
+)
 from color_sentiment_extractor.extraction.color.utils.rgb_distance import (
     _try_simplified_match,
     rgb_distance,
 )
+from color_sentiment_extractor.extraction.color.vocab import (
+    all_webcolor_names,
+    get_known_tones,
+)
+from color_sentiment_extractor.extraction.general.sentiment import (
+    analyze_sentence_sentiment,
+)
+from color_sentiment_extractor.extraction.general.token import recover_base
+from color_sentiment_extractor.extraction.general.utils.load_config import load_config
 
 logger = logging.getLogger(__name__)
 
 # ── Config snapshots ──────────────────────────────────────────────────────────
-known_modifiers: Set[str] = load_config("known_modifiers", mode="set")
-known_tones: Set[str] = load_config("known_tones", mode="set")
+known_modifiers: set[str] = load_config("known_modifiers", mode="set")
+known_tones: set[str] = get_known_tones()
+# validated_dict: Dict[str, Dict[str, List[str]]] (aliases/modifiers/etc.)
+expression_map: dict[str, dict[str, list[str]]] = load_config(
+    "expression_definition", mode="validated_dict"
+)
 
 # Public toggle (env)
 USE_LLM = os.getenv("CSE_USE_LLM", "1") == "1"
@@ -45,12 +57,12 @@ __all__ = [
     "analyze_colors",
 ]
 
+
 # =============================================================================
 # Optional guard: safer split_glued_tokens (opt-in)
 # =============================================================================
 def _enable_glued_guard_if_requested() -> None:
-    """
-    Activates a guard on split_glued_tokens to short-circuit ultra-short tokens.
+    """Activates a guard on split_glued_tokens to short-circuit ultra-short tokens.
     No-ops safely if the module/symbol is missing.
     Triggered only when CSE_ENABLE_GLUED_GUARD=1.
     """
@@ -58,6 +70,7 @@ def _enable_glued_guard_if_requested() -> None:
         return
     try:
         import importlib
+
         m = importlib.import_module(
             "color_sentiment_extractor.extraction.general.token.split.split_core"
         )
@@ -84,7 +97,8 @@ def _enable_glued_guard_if_requested() -> None:
 # Helpers
 # =============================================================================
 
-def _coerce_rgb(rgb: object) -> Optional[Tuple[int, int, int]]:
+
+def _coerce_rgb(rgb: object) -> tuple[int, int, int] | None:
     """Coerces diverse RGB representations to a native (r, g, b) tuple."""
     if rgb is None:
         return None
@@ -107,9 +121,11 @@ def _coerce_rgb(rgb: object) -> Optional[Tuple[int, int, int]]:
         return None
 
 
-def _map_name_rgb_list(items: List[Dict[str, object]]) -> List[Dict[str, Tuple[int, int, int]]]:
+def _map_name_rgb_list(
+    items: list[dict[str, object]],
+) -> list[dict[str, tuple[int, int, int]]]:
     """Apply _coerce_rgb on a list of {'name':..., 'rgb':...} dicts."""
-    out: List[Dict[str, Tuple[int, int, int]]] = []
+    out: list[dict[str, tuple[int, int, int]]] = []
     for d in items:
         if not isinstance(d, dict):
             continue
@@ -124,24 +140,36 @@ def _map_name_rgb_list(items: List[Dict[str, object]]) -> List[Dict[str, Tuple[i
     return out
 
 
-def _unique_by_name(items: List[Dict[str, object]]) -> List[Dict[str, object]]:
-    """Stable-deduplicate by 'name' while preserving order."""
-    seen: Set[str] = set()
-    out: List[Dict[str, object]] = []
+def _norm_name(name: str) -> str:
+    """Normalize CSS/XKCD names for strict de-duplication:
+    - trim
+    - lowercase
+    - remove spaces, hyphens and underscores
+    """
+    s = str(name).strip().lower()
+    return s.replace(" ", "").replace("-", "").replace("_", "")
+
+
+def _unique_by_name(items: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Stable-deduplicate by normalized 'name' while preserving order."""
+    seen: set[str] = set()
+    out: list[dict[str, object]] = []
     for it in items:
         if not isinstance(it, dict):
             continue
-        name = (it.get("name") if isinstance(it, dict) else None) or ""
-        name_l = str(name).strip().lower()
-        if name_l not in seen:
-            seen.add(name_l)
+        raw = (it.get("name") if isinstance(it, dict) else None) or ""
+        key = _norm_name(str(raw))
+        if key not in seen:
+            seen.add(key)
             out.append(it)
     return out
 
 
-def _drop_items_with_none_rgb(items: List[Dict[str, object]]) -> List[Dict[str, object]]:
+def _drop_items_with_none_rgb(
+    items: list[dict[str, object]],
+) -> list[dict[str, object]]:
     """Remove entries with missing or malformed RGB."""
-    out: List[Dict[str, object]] = []
+    out: list[dict[str, object]] = []
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -156,30 +184,30 @@ def _drop_items_with_none_rgb(items: List[Dict[str, object]]) -> List[Dict[str, 
 
 
 def _dedupe_cross_lists(
-    positives: List[Dict[str, object]],
-    negatives: List[Dict[str, object]],
-) -> List[Dict[str, object]]:
-    """Remove from negatives any color already present in positives."""
-    pos_names = {
-        str(p["name"]).strip().lower()
+    positives: list[dict[str, object]],
+    negatives: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Remove from negatives any color already present in positives (by normalized name)."""
+    pos_keys = {
+        _norm_name(p.get("name", ""))
         for p in positives
         if isinstance(p, dict) and "name" in p
     }
     return [
         n
         for n in negatives
-        if (isinstance(n, dict) and str(n.get("name", "")).strip().lower() not in pos_names)
+        if (isinstance(n, dict) and _norm_name(n.get("name", "")) not in pos_keys)
     ]
 
 
 def _dedup_singles_against_compounds(
-    singles: Set[str],
-    compounds: Set[str],
-    known_mods: Set[str],
-    known_tns: Set[str],
-) -> Set[str]:
+    singles: set[str],
+    compounds: set[str],
+    known_mods: set[str],
+    known_tns: set[str],
+) -> set[str]:
     """Drop single tokens covered by at least one compound (surface + recover_base)."""
-    covered: Set[str] = set()
+    covered: set[str] = set()
     for comp in compounds:
         for w in comp.split():
             covered.add(w)
@@ -194,9 +222,9 @@ def _dedup_singles_against_compounds(
     return {s for s in singles if s not in covered}
 
 
-def _build_known_palette(names: Set[str]) -> Dict[str, Tuple[int, int, int]]:
+def _build_known_palette(names: set[str]) -> dict[str, tuple[int, int, int]]:
     """Build {name -> (r,g,b)} from CSS/XKCD names."""
-    palette: Dict[str, Tuple[int, int, int]] = {}
+    palette: dict[str, tuple[int, int, int]] = {}
     for nm in names:
         rgb = _try_simplified_match(nm, debug=False)
         if rgb:
@@ -207,18 +235,18 @@ def _build_known_palette(names: Set[str]) -> Dict[str, Tuple[int, int, int]]:
 
 
 @lru_cache(maxsize=1)
-def _get_known_palette_cached() -> Dict[str, Tuple[int, int, int]]:
+def _get_known_palette_cached() -> dict[str, tuple[int, int, int]]:
     return _build_known_palette(set(all_webcolor_names))
 
 
 def _top_k_nearest(
-    target_rgb: Tuple[int, int, int],
-    palette: Dict[str, Tuple[int, int, int]],
-    exclude: Set[str],
+    target_rgb: tuple[int, int, int],
+    palette: dict[str, tuple[int, int, int]],
+    exclude: set[str],
     k: int,
-) -> List[Dict[str, Tuple[int, int, int]]]:
+) -> list[dict[str, tuple[int, int, int]]]:
     """Return top-k nearest colors (name + rgb) without distances."""
-    scored: List[Tuple[float, str, Tuple[int, int, int]]] = []
+    scored: list[tuple[float, str, tuple[int, int, int]]] = []
     exclude_l = {e.strip().lower() for e in exclude}
     for name, rgb in palette.items():
         if str(name).strip().lower() in exclude_l:
@@ -229,22 +257,22 @@ def _top_k_nearest(
     return [{"name": name, "rgb": rgb} for _, name, rgb in scored[:k]]
 
 
-def _pick_primary(tones: Set[str], phrases: Set[str]) -> Optional[str]:
+def _pick_primary(tones: set[str], phrases: set[str]) -> str | None:
     """Pick a primary phrase: prefer compounds, otherwise first sorted."""
     if tones:
         comps = [t for t in tones if " " in t]
-        return (sorted(comps, key=len, reverse=True)[0] if comps else sorted(tones)[0])
+        return sorted(comps, key=len, reverse=True)[0] if comps else sorted(tones)[0]
     if phrases:
         comps = [p for p in phrases if " " in p]
-        return (sorted(comps, key=len, reverse=True)[0] if comps else sorted(phrases)[0])
+        return sorted(comps, key=len, reverse=True)[0] if comps else sorted(phrases)[0]
     return None
 
 
 def _resolve_rgb_for_phrase(
-    phrase: Optional[str],
+    phrase: str | None,
     llm_client,
     debug: bool = False,
-) -> Optional[Tuple[int, int, int]]:
+) -> tuple[int, int, int] | None:
     """Resolve RGB robustly: CSS/XKCD first, then LLM fallback if enabled."""
     if not phrase:
         return None
@@ -264,12 +292,11 @@ def _resolve_rgb_for_phrase(
 
 
 def _extract_group_colors(
-    group_segments: List[str],
+    group_segments: list[str],
     llm_client,
     debug: bool = False,
-) -> Tuple[Set[str], Set[str], Dict[str, Tuple[int, int, int]]]:
-    """
-    Run the color pipeline on a list of segments, apply de-duplication,
+) -> tuple[set[str], set[str], dict[str, tuple[int, int, int]]]:
+    """Run the color pipeline on a list of segments, apply de-duplication,
     and retain an rgb_map aligned with the retained phrases.
     """
     if not group_segments:
@@ -278,16 +305,20 @@ def _extract_group_colors(
     tones, phrases, rgb_map = aggregate_color_phrase_results(
         segments=group_segments,
         known_modifiers=known_modifiers,
+        known_tones=known_tones,
+        expression_map=expression_map,
         all_webcolor_names=all_webcolor_names,
         llm_client=llm_client,
         cache=None,
         debug=debug,
     )
 
-    def _apply_dedup(items: Set[str]) -> Set[str]:
+    def _apply_dedup(items: set[str]) -> set[str]:
         singles = {x for x in items if " " not in x}
         comps = {x for x in items if " " in x}
-        singles = _dedup_singles_against_compounds(singles, comps, known_modifiers, known_tones)
+        singles = _dedup_singles_against_compounds(
+            singles, comps, known_modifiers, known_tones
+        )
         return singles | comps
 
     tones = _apply_dedup(set(tones))
@@ -297,12 +328,12 @@ def _extract_group_colors(
 
 
 def _bundle_palette(
-    primary_phrase: Optional[str],
-    primary_rgb: Optional[Tuple[int, int, int]],
-    phrases_set: Set[str],
-    palette: Dict[str, Tuple[int, int, int]],
+    primary_phrase: str | None,
+    primary_rgb: tuple[int, int, int] | None,
+    phrases_set: set[str],
+    palette: dict[str, tuple[int, int, int]],
     top_k: int,
-) -> List[Dict[str, Tuple[int, int, int]]]:
+) -> list[dict[str, tuple[int, int, int]]]:
     """Build [primary(name+rgb), alt1(name+rgb), ...] without distances."""
     if not primary_phrase or not primary_rgb:
         return []
@@ -315,11 +346,11 @@ def _bundle_palette(
 # Public APIs
 # =============================================================================
 
+
 def analyze_colors_with_sentiment(
     text: str, *, top_k: int = 12, debug: bool = False
-) -> Dict[str, List[Dict[str, Tuple[int, int, int]]]]:
-    """
-    Preference mode:
+) -> dict[str, list[dict[str, tuple[int, int, int]]]]:
+    """Preference mode:
     Returns:
       {
         "positif": [{"name": <primary_like>, "rgb": (...) }, ...],
@@ -347,18 +378,19 @@ def analyze_colors_with_sentiment(
     positif = _map_name_rgb_list(positif)
     negatif = _map_name_rgb_list(negatif)
 
+    # Intra-lists: dedupe by normalized names
     positif = _drop_items_with_none_rgb(_unique_by_name(positif))
     negatif = _drop_items_with_none_rgb(_unique_by_name(negatif))
 
+    # Cross-lists: remove negatives that are the same (normalized) as positives
     negatif = _dedupe_cross_lists(positif, negatif)
     return {"positif": positif, "negatif": negatif}
 
 
 def analyze_colors(
     text: str, debug: bool = False, *, top_k: int = 12
-) -> Dict[str, object]:
-    """
-    Legacy “single block” mode (primary + alternatives).
+) -> dict[str, object]:
+    """Legacy “single block” mode (primary + alternatives).
     Also returns tones/phrases/rgb_map for integration/debug.
     """
     llm_client = get_llm_client(debug=debug)
@@ -366,16 +398,20 @@ def analyze_colors(
     tones, phrases, rgb_map = aggregate_color_phrase_results(
         segments=[text],
         known_modifiers=known_modifiers,
+        known_tones=known_tones,
+        expression_map=expression_map,
         all_webcolor_names=all_webcolor_names,
         llm_client=llm_client,
         cache=None,
         debug=debug,
     )
 
-    def _apply_dedup(items: Set[str]) -> Set[str]:
+    def _apply_dedup(items: set[str]) -> set[str]:
         singles = {t for t in items if " " not in t}
         comps = {t for t in items if " " in t}
-        singles = _dedup_singles_against_compounds(singles, comps, known_modifiers, known_tones)
+        singles = _dedup_singles_against_compounds(
+            singles, comps, known_modifiers, known_tones
+        )
         return singles | comps
 
     tones = _apply_dedup(set(tones))
@@ -385,7 +421,7 @@ def analyze_colors(
     primary_phrase = _pick_primary(tones, phrases)
     primary_rgb = _resolve_rgb_for_phrase(primary_phrase, llm_client, debug=debug)
 
-    alternatives: List[Dict[str, Tuple[int, int, int]]] = []
+    alternatives: list[dict[str, tuple[int, int, int]]] = []
     if primary_rgb:
         palette = _get_known_palette_cached()
         exclude = set(phrases) | ({primary_phrase} if primary_phrase else set())
@@ -411,16 +447,24 @@ if __name__ == "__main__":
     # Load env + basic context logs only at runtime (no import side effects)
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except Exception:
         pass
 
     logger.info("Python: %s", sys.executable)
-    logger.info("OpenRouter API key present: %s", "yes" if os.getenv("OPENROUTER_API_KEY") else "no")
+    logger.info(
+        "OpenRouter API key present: %s",
+        "yes" if os.getenv("OPENROUTER_API_KEY") else "no",
+    )
 
     _enable_glued_guard_if_requested()
 
     # Demo — preferences
-    print(analyze_colors_with_sentiment("I love bright red but I hate purple", top_k=10, debug=True))
+    print(
+        analyze_colors_with_sentiment(
+            "I love bright red but I hate purple", top_k=10, debug=True
+        )
+    )
     # Demo — legacy
     # print(analyze_colors("Soft dusty rose glow lipstick", debug=True))
