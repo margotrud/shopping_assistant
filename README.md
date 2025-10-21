@@ -2,15 +2,15 @@
 
 <p align="left">
   <!-- CI badge -->
-  <a href="https://github.com/margotrud/shopping_assistant/actions">
-    <img src="https://github.com/margotrud/shopping_assistant/actions/workflows/tests.yml/badge.svg" alt="CI status">
+  <a href="https://github.com/margotrud/shopping_assistant/actions/workflows/ci.yml">
+    <img src="https://github.com/margotrud/shopping_assistant/actions/workflows/ci.yml/badge.svg" alt="CI status">
   </a>
   <!-- Coverage (Codecov) -->
   <a href="https://codecov.io/gh/margotrud/shopping_assistant">
-    <img src="https://codecov.io/gh/margotrud/shopping_assistant/branch/main/graph/badge.svg" alt="Codecov">
+    <img src="https://img.shields.io/codecov/c/github/margotrud/shopping_assistant" alt="Codecov">
   </a>
   <!-- Python versions -->
-  <img src="https://img.shields.io/badge/Python-3.10%20|%203.11-blue" alt="Python versions">
+  <img src="https://img.shields.io/badge/Python-3.10%20|%203.11%20|%203.12-blue" alt="Python versions">
   <!-- License -->
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
 </p>
@@ -77,7 +77,7 @@ Output:
 
 ---
 
-## ✨ Highlights for Recruiters
+## ✨ Highlights
 
 - **End-to-end NLP pipeline** combining rule-based parsing, fuzzy logic, and suffix recovery.  
 - **Data-driven color reasoning**: maps language to RGB through hybrid lookup (CSS/XKCD + LLM).  
