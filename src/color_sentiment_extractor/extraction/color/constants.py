@@ -2,7 +2,7 @@
 # ============
 
 """
-constants
+constants.
 =========
 
 Does: Define global, immutable color-domain constants for extraction & recovery
@@ -12,34 +12,38 @@ Used By: Token/base recovery, suffix handling, alias validation, phrase extracti
 Returns: Pure data structures only (no side effects).
 
 Notes importantes:
-- Les allowlists/overrides sont volontariamente petites : exceptions réelles, pas de logique générale.
+- Les allowlists/overrides sont volontariamente petites : exceptions réelles, pas de
+logique générale.
 """
-from typing import Set
 
-AUTONOMOUS_TONE_BAN: Set[str] = {"dust", "glow"}  # disallow as standalone tones
+AUTONOMOUS_TONE_BAN: set[str] = {"dust", "glow"}  # disallow as standalone tones
 
 
 # ── 1) Conflicts & blocking ──────────────────────────────────────────────────
 
 # Symmetric conflicts between tokens/phrases (order does not matter)
-SEMANTIC_CONFLICTS = frozenset({
-    frozenset({"white", "offwhite"}),
-    frozenset({"cool", "coal"}),
-    frozenset({"soft glam", "soft glow"}),
-    frozenset({"blurple", "pale"}),
-    frozenset({"clay", "classy"}),
-    frozenset({"airy", "fairy"}),
-    frozenset({"silly", "silk"}),
-})
+SEMANTIC_CONFLICTS = frozenset(
+    {
+        frozenset({"white", "offwhite"}),
+        frozenset({"cool", "coal"}),
+        frozenset({"soft glam", "soft glow"}),
+        frozenset({"blurple", "pale"}),
+        frozenset({"clay", "classy"}),
+        frozenset({"airy", "fairy"}),
+        frozenset({"silly", "silk"}),
+    }
+)
 
 # Ordered (raw, base) pairs that must never be accepted during recovery
-BLOCKED_TOKENS = frozenset({
-    ("light", "night"),
-    ("romantic", "dramatic"),
-    ("off blue", "white"),
-    ("tint", "mint"),
-    ("liner", "linen"),
-})
+BLOCKED_TOKENS = frozenset(
+    {
+        ("light", "night"),
+        ("romantic", "dramatic"),
+        ("off blue", "white"),
+        ("tint", "mint"),
+        ("liner", "linen"),
+    }
+)
 
 # Suppress tags when others are present (left beats any on right)
 EXPRESSION_SUPPRESSION_RULES = {
@@ -73,8 +77,17 @@ Y_SUFFIX_OVERRIDE_FORMS = {
 
 
 # ── 3) Domain nouns to filter from phrase extraction ─────────────────────────
-COSMETIC_NOUNS = frozenset({
-    "blush", "foundation", "lipstick", "concealer",
-    "bronzer", "highlighter", "mascara", "eyeliner",
-    "tone", "shades",
-})
+COSMETIC_NOUNS = frozenset(
+    {
+        "blush",
+        "foundation",
+        "lipstick",
+        "concealer",
+        "bronzer",
+        "highlighter",
+        "mascara",
+        "eyeliner",
+        "tone",
+        "shades",
+    }
+)

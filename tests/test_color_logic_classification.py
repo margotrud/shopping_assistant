@@ -1,5 +1,5 @@
 """
-Tests for logic/classification/ (categorizer.py)
+Tests for logic/classification/ (categorizer.py).
 
 Couvre:
 - build_tone_modifier_mappings()
@@ -51,9 +51,11 @@ def test_build_mappings_unicode_hyphen_and_underscore():
 def test_cosmetic_nouns_filtered_from_tones():
     # 'lipstick' ne doit jamais être accepté comme tone même s'il apparaît en 2ᵉ position
     phrases = ["dusty lipstick", "rosy lipstick"]
-    known_tones = {"lipstick", "rose"}   # même si présent, doit être filtré par COSMETIC_NOUNS interne
+    # même si présent, doit être filtré par COSMETIC_NOUNS interne
+    known_tones = {"lipstick", "rose"}
     known_modifiers = {"dusty", "rosy"}
     tones, mods, m2t, t2m = categorizer.build_tone_modifier_mappings(
+
         phrases, known_tones, known_modifiers
     )
     assert "lipstick" not in tones

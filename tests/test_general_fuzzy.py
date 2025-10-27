@@ -1,7 +1,9 @@
 # tests/test_general_fuzzy.py
 from __future__ import annotations
+
 import re
 import sys
+
 import pytest
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -27,7 +29,13 @@ def patch_normalize_and_recovery(monkeypatch):
         return s
 
     # --- Base recovery minimal ---
-    def _recover_base(s: str, use_cache: bool = True, allow_fuzzy: bool = False, debug: bool = False):
+    # --- Base recovery minimal ---
+    def _recover_base(
+            s: str,
+            use_cache: bool = True,
+            allow_fuzzy: bool = False,
+            debug: bool = False,
+    ):
         x = _normalize_token(s, keep_hyphens=True)
 
         if x.endswith("y") and len(x) > 3:
@@ -85,9 +93,7 @@ def patch_normalize_and_recovery(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def patch_expression_config(monkeypatch):
-    """
-    Does: Patch expression_match to use a tiny, stable config dict.
-    """
+    """Does: Patch expression_match to use a tiny, stable config dict."""
     from color_sentiment_extractor.extraction.general.fuzzy import expression_match as em
 
     def _fake_def():
@@ -159,7 +165,12 @@ def test_is_exact_match_normalizes_hyphens_spaces():
 
 def test_is_strong_fuzzy_match_with_conflict_and_negation_guards():
     from color_sentiment_extractor.extraction.general.fuzzy import fuzzy_core as FC
-    assert FC.is_strong_fuzzy_match("matte", "glossy", conflict_groups=[{"matte", "glossy"}]) is False
+
+    assert FC.is_strong_fuzzy_match(
+        "matte",
+        "glossy",
+        conflict_groups=[{"matte", "glossy"}],
+    ) is False
     assert FC.is_strong_fuzzy_match("no shimmer", "shimmer") is False
     assert FC.is_strong_fuzzy_match("rosegold", "rose gold") is True
 
@@ -178,7 +189,15 @@ def test_fuzzy_match_token_safe_best_and_edits():
 def test_is_valid_singleword_alias_with_root_equivalence():
     from color_sentiment_extractor.extraction.general.fuzzy import alias_validation as AV
     tokens = ["dusty", "rose", "glow"]
-    ok = AV.is_valid_singleword_alias("rosy", "soft rosy glow", tokens, matched_aliases=set(), debug=False)
+    tokens = ["dusty", "rose", "glow"]
+    ok = AV.is_valid_singleword_alias(
+        "rosy",
+        "soft rosy glow",
+        tokens,
+        matched_aliases=set(),
+        debug=False,
+    )
+    assert ok is True  # rosy ~ rose via patch
     assert ok is True  # rosy ~ rose via patch
 
 
@@ -223,7 +242,13 @@ def test_cached_match_expression_aliases_lru_works(monkeypatch):
 
     # Vide le cache et vérifie l'appel unique
     EM.cached_match_expression_aliases.cache_clear()
-    EM.cached_match_expression_aliases("rose gold glow")  # → 1er appel : charge via _spy → original_get
-    EM.cached_match_expression_aliases("rose gold glow")  # → 2e appel : doit être servi par le cache
+    # Vide le cache et vérifie l'appel unique
+    EM.cached_match_expression_aliases.cache_clear()
+    EM.cached_match_expression_aliases(
+        "rose gold glow"
+    )  # → 1er appel : charge via _spy → original_get
+    EM.cached_match_expression_aliases(
+        "rose gold glow"
+    )  # → 2e appel : doit être servi par le cache
 
     assert calls["n"] == 1

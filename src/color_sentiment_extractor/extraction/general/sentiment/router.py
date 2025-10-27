@@ -1,8 +1,7 @@
 # src/color_sentiment_extractor/extraction/general/sentiment/router.py
-from __future__ import annotations
 
 """
-sentiment_router.py
+sentiment_router.py.
 ===================
 
 Builds a color response summary for a given sentiment category.
@@ -13,20 +12,15 @@ Outputs:
 - base_rgb: Representative RGB triplet for this sentiment (or None)
 - threshold: RGB margin for inclusion
 """
+from __future__ import annotations
 
-from typing import (
-    List,
-    Set,
-    Tuple,
-    Dict,
-    Optional,
-    Mapping,
-    TypedDict,
-    Iterable,
-)
-from statistics import median
-import os
 import logging
+import os
+from collections.abc import Iterable, Mapping
+from statistics import median
+from typing import (
+    TypedDict,
+)
 
 from color_sentiment_extractor.extraction.color.logic import (
     aggregate_color_phrase_results,
@@ -42,12 +36,12 @@ __all__ = ["build_color_sentiment_summary"]
 logger = logging.getLogger(__name__)
 
 # ── Types ────────────────────────────────────────────────────────────────────
-RGB = Tuple[int, int, int]
+RGB = tuple[int, int, int]
 
 
 class ColorSentimentSummary(TypedDict):
-    matched_color_names: List[str]
-    base_rgb: Optional[RGB]
+    matched_color_names: list[str]
+    base_rgb: RGB | None
     threshold: float
 
 
@@ -65,12 +59,12 @@ RGB_THRESHOLD_MAX: float = _env_float("RGB_THRESHOLD_MAX", 75.0)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
+def _stable_sorted_phrases(items: Iterable[str]) -> list[str]:
     """
     Case-insensitive, whitespace-trimmed, duplicate-free ordering.
     Dedup is done with casefold(); original casing of first occurrence is preserved.
     """
-    canon: Dict[str, str] = {}
+    canon: dict[str, str] = {}
     for s in items:
         if not s:
             continue
@@ -84,7 +78,7 @@ def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
     return [canon[k] for k in sorted(canon.keys())]
 
 
-def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> float:
+def _estimate_threshold(base_rgb: RGB | None, rgb_map: Mapping[str, RGB]) -> float:
     """
     Heuristic: if we have ≥2 colors, use median distance to base as threshold,
     clamped to a reasonable band. Else fall back to RGB_THRESHOLD_DEFAULT.
@@ -92,7 +86,7 @@ def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> 
     if not base_rgb or not rgb_map:
         return RGB_THRESHOLD_DEFAULT
 
-    distances: List[float] = []
+    distances: list[float] = []
     for rgb in rgb_map.values():
         try:
             distances.append(float(rgb_distance(base_rgb, rgb)))
@@ -110,12 +104,12 @@ def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> 
 # ── Public API ────────────────────────────────────────────────────────────────
 def build_color_sentiment_summary(
     sentiment: str,
-    segments: List[str],
-    known_tones: Set[str],
-    known_modifiers: Set[str],
-    expression_map: Dict[str, Dict[str, List[str]]],
-    rgb_map: Dict[str, RGB],
-    base_rgb_by_sentiment: Dict[str, Optional[RGB]],
+    segments: list[str],
+    known_tones: set[str],
+    known_modifiers: set[str],
+    expression_map: dict[str, dict[str, list[str]]],
+    rgb_map: dict[str, RGB],
+    base_rgb_by_sentiment: dict[str, RGB | None],
     *,
     debug: bool = False,
 ) -> ColorSentimentSummary:
@@ -139,7 +133,6 @@ def build_color_sentiment_summary(
           "threshold": float
         }
     """
-
     # 1. Run phrase pipeline once for this sentiment cluster
     _matched_tones, matched_phrases, local_rgb_map = aggregate_color_phrase_results(
         # NOTE: we switch to kwargs so mypy can check names+types
@@ -174,9 +167,7 @@ def build_color_sentiment_summary(
 
     # 4. Derive / persist base color for this sentiment
     # Prefer local extraction; else fall back to a previously chosen base.
-    base_rgb: Optional[RGB] = (
-        choose_representative_rgb(local_rgb_map) if local_rgb_map else None
-    )
+    base_rgb: RGB | None = choose_representative_rgb(local_rgb_map) if local_rgb_map else None
     if base_rgb is None:
         base_rgb = base_rgb_by_sentiment.get(sentiment)
 

@@ -1,5 +1,13 @@
-# tests/test_general_sentiment.py
 from __future__ import annotations
+
+import math
+import re
+
+import pytest
+
+from color_sentiment_extractor.extraction.general.sentiment import core as S
+from color_sentiment_extractor.extraction.general.sentiment import router as R
+
 """
 Tests: general/sentiment (core.py & router.py)
 - Sans téléchargement NLTK ni modèles HF (fakes/DI)
@@ -8,20 +16,13 @@ Tests: general/sentiment (core.py & router.py)
           et build_color_sentiment_summary (router) avec monkeypatch.
 """
 
-import re
-import math
-import pytest
-
-from color_sentiment_extractor.extraction.general.sentiment import core as S
-from color_sentiment_extractor.extraction.general.sentiment import router as R
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Fixtures & Fakes
 # ──────────────────────────────────────────────────────────────────────────────
 
 class FakeVader:
     """Minimal VADER fake: scores with word-boundary matching; negatives win over positives."""
+
     _NEG = re.compile(r"\b(hate|dislike|awful|bad|terrible)\b", flags=re.I)
     _POS = re.compile(r"\b(love|like|great|amazing|good|fan of)\b", flags=re.I)
 
@@ -34,6 +35,7 @@ class FakeVader:
 
 class FakeBart:
     """Fake zero-shot pipeline: renvoie un ordre de labels déterministe comme core._FakeZeroShot."""
+
     def __call__(self, text, labels):
         low = str(text).lower()
         if any(k in low for k in ("love", "like", "great", "good", "amazing")):
@@ -62,10 +64,16 @@ def patch_env_and_loaders(monkeypatch):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def test_detect_sentiment_vader_paths():
-    assert S.detect_sentiment("I love this product!", vader=FakeVader(), bart=FakeBart()) == "positive"
+    assert (
+            S.detect_sentiment("I love this product!", vader=FakeVader(), bart=FakeBart())
+            == "positive"
+    )
     assert S.detect_sentiment("I hate this color", vader=FakeVader(), bart=FakeBart()) == "negative"
     # Neutre → bascule sur BART (FakeBart renverra 'neutral' en top label)
-    assert S.detect_sentiment("It's okay, nothing special", vader=FakeVader(), bart=FakeBart()) == "neutral"
+    assert (
+            S.detect_sentiment("It's okay, nothing special", vader=FakeVader(), bart=FakeBart())
+            == "neutral"
+    )
 
 
 def test_map_sentiment_negation_overrides_to_negative():
@@ -123,7 +131,7 @@ def _fake_choose_representative_rgb(rgb_map):
 
 
 def _euclid_rgb(a, b):
-    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+    return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b, strict=False)))
 
 
 def test_build_color_sentiment_summary_happy_path(monkeypatch):
@@ -132,7 +140,9 @@ def test_build_color_sentiment_summary_happy_path(monkeypatch):
         lambda **kwargs: _fake_aggregate_color_phrase_results(**kwargs),
         raising=True,
     )
-    monkeypatch.setattr(R, "choose_representative_rgb", _fake_choose_representative_rgb, raising=True)
+    monkeypatch.setattr(
+        R, "choose_representative_rgb", _fake_choose_representative_rgb, raising=True
+    )
     monkeypatch.setattr(R, "rgb_distance", _euclid_rgb, raising=True)
 
     sentiment = "romantic"
@@ -154,7 +164,9 @@ def test_build_color_sentiment_summary_happy_path(monkeypatch):
 
     names = summary["matched_color_names"]
     assert len(names) == 2
-    assert [s.casefold() for s in names] == ["dusty rose", "nude rose"]  # ordre + dédup insensibles à la casse
+    assert (
+            [s.casefold() for s in names] == ["dusty rose", "nude rose"]
+    )  # ordre + dédup insensibles à la casse
     assert summary["base_rgb"] in {(210, 150, 160), (205, 170, 165)}
     assert isinstance(summary["threshold"], float) and 30.0 <= summary["threshold"] <= 80.0
     assert "dusty rose" in rgb_map and "nude rose" in rgb_map

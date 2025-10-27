@@ -9,6 +9,7 @@ Modes:
 
 Used by vocab loaders, extraction pipelines, and tests needing hot reload.
 """
+
 from __future__ import annotations
 
 import json

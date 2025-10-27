@@ -1,38 +1,22 @@
-from __future__ import annotations
 
 """
-compound.py
+compound.py.
 
-Does: Resolve and validate (modifier, tone) pairs from adjacent/split/glued tokens with suffix/base recovery and optional LLM fallback.
-Returns: Mutates `compounds: set[str]` (e.g., "dusty rose") and `raw_compounds: list[tuple[str,str]]` holding (modifier, tone).
+Does: Resolve and validate (modifier, tone) pairs from adjacent/split/glued tokens
+with suffix/base recovery and optional LLM fallback.
+Returns: Mutates `compounds: set[str]` (e.g., "dusty rose") and `raw_compounds:
+list[tuple[str,str]]` holding (modifier, tone).
 Used by: Color phrase extraction pipelines; RGB pipelines downstream.
 """
 
-from functools import lru_cache
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from __future__ import annotations
+
 import logging
+from collections.abc import Iterable
+from functools import lru_cache
+
 import spacy
 from spacy.tokens import Doc, Token
-
-__all__ = [
-    "attempt_mod_tone_pair",
-    "extract_from_adjacent",
-    "extract_from_split",
-    "extract_from_glued",
-    "extract_compound_phrases",
-]
-
-log = logging.getLogger(__name__)
-
-
-@lru_cache(maxsize=1)
-def get_nlp():
-    """Load spaCy model once (lazy); fallback to blank English if model missing."""
-    try:
-        return spacy.load("en_core_web_sm")
-    except OSError:
-        return spacy.blank("en")  # tokenization-only fallback
-
 
 from color_sentiment_extractor.extraction.color.constants import (
     COSMETIC_NOUNS,
@@ -59,12 +43,33 @@ from color_sentiment_extractor.extraction.general.token.suffix import (
     build_augmented_suffix_vocab,
 )
 
+__all__ = [
+    "attempt_mod_tone_pair",
+    "extract_from_adjacent",
+    "extract_from_split",
+    "extract_from_glued",
+    "extract_compound_phrases",
+]
+
+log = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def get_nlp():
+    """Load spaCy model once (lazy); fallback to blank English if model missing."""
+    try:
+        return spacy.load("en_core_web_sm")
+    except OSError:
+        return spacy.blank("en")  # tokenization-only fallback
+
+
+
 
 def _surface_modifier(
     raw_mod: str,
-    mod_canonical: Optional[str],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    mod_canonical: str | None,
+    known_modifiers: set[str],
+    known_tones: set[str],
 ) -> str:
     """Pick best display form for modifier."""
     raw = raw_mod.lower()
@@ -73,12 +78,15 @@ def _surface_modifier(
         return raw
 
     if raw.endswith(("y", "ish")):
-        base_raw = recover_base(
-            raw,
-            known_modifiers=known_modifiers,
-            known_tones=known_tones,
-            fuzzy_fallback=False,
-        ) or None
+        base_raw = (
+            recover_base(
+                raw,
+                known_modifiers=known_modifiers,
+                known_tones=known_tones,
+                fuzzy_fallback=False,
+            )
+            or None
+        )
         if base_raw and mod_canonical and base_raw == mod_canonical:
             return raw
 
@@ -97,7 +105,7 @@ def _surface_modifier(
 
 
 def _is_invalid_suffixy_tone(
-    tone: str, known_tones: Set[str], all_webcolor_names: Set[str]
+    tone: str, known_tones: set[str], all_webcolor_names: set[str]
 ) -> bool:
     """Reject tones like 'pinkish' if not explicitly known."""
     return (
@@ -108,12 +116,12 @@ def _is_invalid_suffixy_tone(
 
 
 def _safe_add_compound(
-    compounds: Set[str],
-    raw_compounds: List[Tuple[str, str]],
+    compounds: set[str],
+    raw_compounds: list[tuple[str, str]],
     mod: str,
     tone: str,
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     debug: bool,
 ) -> None:
     """Add phrase 'mod tone' if valid."""
@@ -130,11 +138,9 @@ def _safe_add_compound(
 
 
 def is_plausible_modifier(
-    token: str, known_modifiers: Set[str], known_color_tokens: Set[str]
+    token: str, known_modifiers: set[str], known_color_tokens: set[str]
 ) -> bool:
-    """
-    Heuristic: looks like a modifier (or can be reduced to one) and not total garbage.
-    """
+    """Heuristic: looks like a modifier (or can be reduced to one) and not total garbage."""
     if token in known_modifiers or token in known_color_tokens:
         return True
     if not token.isalpha() or len(token) < 3:
@@ -151,11 +157,11 @@ def is_plausible_modifier(
 def attempt_mod_tone_pair(
     mod_candidate: str,
     tone_candidate: str,
-    compounds: Set[str],
-    raw_compounds: List[Tuple[str, str]],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    compounds: set[str],
+    raw_compounds: list[tuple[str, str]],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     llm_client,
     debug: bool = False,
 ) -> None:
@@ -168,7 +174,7 @@ def attempt_mod_tone_pair(
         log.debug("[🔍 MODIFIER CANDIDATE] '%s'", mod_candidate)
         log.debug("[🔍 TONE CANDIDATE]     '%s'", tone_candidate)
 
-    resolved: Dict[str, str] = {}
+    resolved: dict[str, str] = {}
     for role, candidate in [("modifier", mod_candidate), ("tone", tone_candidate)]:
         if debug:
             log.debug("[🔎 RESOLUTION START] Role=%s | Candidate='%s'", role, candidate)
@@ -185,8 +191,10 @@ def attempt_mod_tone_pair(
             log.debug("[✅ RESOLVED VIA TOKEN] '%s' → '%s'", candidate, result)
 
         # accept direct tone as-is if known
-        if not result and role == "tone" and (
-            candidate in known_tones or candidate in all_webcolor_names
+        if (
+            not result
+            and role == "tone"
+            and (candidate in known_tones or candidate in all_webcolor_names)
         ):
             result = candidate
             if debug:
@@ -242,15 +250,15 @@ def attempt_mod_tone_pair(
 
 def extract_from_split(
     tokens: Iterable[Token],
-    compounds: Set[str],
-    raw_compounds: List[Tuple[str, str]],
-    known_color_tokens: Set[str],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    compounds: set[str],
+    raw_compounds: list[tuple[str, str]],
+    known_color_tokens: set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     debug: bool = False,
     *,
-    aug_vocab: Optional[Set[str]] = None,
+    aug_vocab: set[str] | None = None,
 ) -> None:
     """
     Recover modifier+tone from tokens that might be internally splittable
@@ -442,7 +450,7 @@ def extract_from_split(
                     third_is_tone,
                 )
 
-            def surf(token_: str, canon_: Optional[str]) -> str:
+            def surf(token_: str, canon_: str | None) -> str:
                 return (
                     _surface_modifier(token_, canon_, known_modifiers, known_tones)
                     if canon_
@@ -508,19 +516,17 @@ def extract_from_split(
 
 def extract_from_glued(
     tokens: Iterable[Token],
-    compounds: Set[str],
-    raw_compounds: List[Tuple[str, str]],
-    known_color_tokens: Set[str],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    compounds: set[str],
+    raw_compounds: list[tuple[str, str]],
+    known_color_tokens: set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     debug: bool = False,
     *,
-    aug_vocab: Optional[Set[str]] = None,
+    aug_vocab: set[str] | None = None,
 ) -> None:
-    """
-    Recover from glued tokens like 'dustyrose'.
-    """
+    """Recover from glued tokens like 'dustyrose'."""
     for token in tokens:
         raw = token.text.lower()
 
@@ -545,15 +551,13 @@ def extract_from_glued(
 
         # try backup split if the main didn't convince us
         if not parts or len(parts) not in {2, 3} or (len(parts) == 1 and parts[0] in known_tones):
-            fallback_parts = split_tokens_to_parts(
-                raw, known_modifiers | known_tones, debug=debug
-            )
+            fallback_parts = split_tokens_to_parts(raw, known_modifiers | known_tones, debug=debug)
             if fallback_parts and len(fallback_parts) == 3:
                 a, b, c = fallback_parts
                 tone_b = is_known_tone(b, known_tones, all_webcolor_names)
                 tone_c = is_known_tone(c, known_tones, all_webcolor_names)
 
-                def normalize_mod(token_: str) -> Optional[str]:
+                def normalize_mod(token_: str) -> str | None:
                     if token_ in known_modifiers:
                         return token_
                     if token_.endswith("y") and token_[:-1] in known_modifiers:
@@ -564,9 +568,7 @@ def extract_from_glued(
 
                 mod_a = normalize_mod(a)
                 if mod_a and tone_b and tone_c:
-                    surface_a = _surface_modifier(
-                        a, mod_a, known_modifiers, known_tones
-                    )
+                    surface_a = _surface_modifier(a, mod_a, known_modifiers, known_tones)
                     _safe_add_compound(
                         compounds,
                         raw_compounds,
@@ -610,11 +612,18 @@ def extract_from_glued(
             if debug:
                 log.debug(
                     "[🔍 GLUED 3-PART] '%s %s %s' | mod=[%s,%s,%s] tone=[%s,%s,%s]",
-                    a, b, c, bool(mod_a), bool(mod_b), bool(mod_c),
-                    tone_a, tone_b, tone_c,
+                    a,
+                    b,
+                    c,
+                    bool(mod_a),
+                    bool(mod_b),
+                    bool(mod_c),
+                    tone_a,
+                    tone_b,
+                    tone_c,
                 )
 
-            def surf(token_: str, canon_: Optional[str]) -> str:
+            def surf(token_: str, canon_: str | None) -> str:
                 return (
                     _surface_modifier(token_, canon_, known_modifiers, known_tones)
                     if canon_
@@ -642,11 +651,11 @@ def extract_from_glued(
 
 def extract_from_adjacent(
     tokens: Iterable[Token],
-    compounds: Set[str],
-    raw_compounds: List[Tuple[str, str]],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    compounds: set[str],
+    raw_compounds: list[tuple[str, str]],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     debug: bool = False,
 ) -> None:
     """Scan adjacent tokens: 'soft pink', 'barely-there pink', etc."""
@@ -695,7 +704,9 @@ def extract_from_adjacent(
                     log.debug("[⛔ COSMETIC BLOCK] skip '%s %s'", combined_mod_raw, raw_tone2)
                 continue
 
-            mod2_canon = resolve_modifier_token(combined_mod_raw, known_modifiers, known_tones, debug=debug)
+            mod2_canon = resolve_modifier_token(
+                combined_mod_raw, known_modifiers, known_tones, debug=debug
+            )
             tone2 = raw_tone2 if raw_tone2 in known_tones else None
 
             if mod2_canon and tone2:
@@ -715,18 +726,16 @@ def extract_from_adjacent(
 
 def extract_compound_phrases(
     tokens: Iterable[Token] | Doc,
-    compounds: Set[str],
-    raw_compounds: List[Tuple[str, str]],
-    known_color_tokens: Set[str],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    compounds: set[str],
+    raw_compounds: list[tuple[str, str]],
+    known_color_tokens: set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     raw_text: str = "",
     debug: bool = False,
 ) -> None:
-    """
-    Orchestrator: run adjacent/split/glued passes and then final cleanup.
-    """
+    """Orchestrator: run adjacent/split/glued passes and then final cleanup."""
     if raw_text:
         raw_text = raw_text.replace("-", " ")
         tokens = get_nlp()(raw_text)

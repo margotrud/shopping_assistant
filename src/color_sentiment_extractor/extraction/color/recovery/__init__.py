@@ -1,6 +1,6 @@
 # extraction/color/recovery/__init__.py
 """
-recovery
+recovery.
 ========
 
 Does:
@@ -17,22 +17,19 @@ from __future__ import annotations
 # ── Submodule imports ─────────────────────────────────────────────────────────
 from .fuzzy_recovery import is_suffix_root_match
 from .llm_recovery import (
-    simplify_phrase_if_needed,
+    _attempt_simplify_token,
+    _extract_filtered_tokens,
     simplify_color_description_with_llm,
+    simplify_phrase_if_needed,
 )
 from .modifier_resolution import (
-    resolve_modifier_token,
-    match_direct_modifier,
-    match_suffix_fallback,
     is_blocked_modifier_tone_pair,
     is_known_tone,
+    is_modifier_compound_conflict,
+    match_direct_modifier,
+    match_suffix_fallback,
     recover_y_with_fallback,
-    is_modifier_compound_conflict
-)
-
-from.llm_recovery import (
-    _attempt_simplify_token,
-    _extract_filtered_tokens
+    resolve_modifier_token,
 )
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -48,5 +45,5 @@ __all__ = [
     "recover_y_with_fallback",
     "is_modifier_compound_conflict",
     "_attempt_simplify_token",
-    "_extract_filtered_tokens"
+    "_extract_filtered_tokens",
 ]

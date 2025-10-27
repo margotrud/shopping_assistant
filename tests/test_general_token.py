@@ -1,11 +1,11 @@
 # tests/test_general_token.py
 from __future__ import annotations
+
 import pytest
 
 # Modules sous test
 from color_sentiment_extractor.extraction.general.token import base_recovery as BR
 from color_sentiment_extractor.extraction.general.token import normalize as N
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fixtures: patchs déterministes pour constants, suffix-chain, fuzzy, nouns
@@ -13,9 +13,7 @@ from color_sentiment_extractor.extraction.general.token import normalize as N
 
 @pytest.fixture(autouse=True)
 def patch_constants_and_helpers(monkeypatch):
-    """
-    Does: Stabilise l'environnement de test pour base_recovery + normalize.
-    """
+    """Does: Stabilise l'environnement de test pour base_recovery + normalize."""
     # Vocab connu (on passe aussi explicitement dans les appels pour éviter le cache)
     known_mods = {"dusty", "soft", "gloss", "cream"}
     known_tones = {"rose", "beige", "navy", "blue"}
@@ -98,7 +96,9 @@ def test_recover_base_fuzzy_blocked_and_conflict_guards(patch_constants_and_help
     def _bad_fuzzy(s, cands, thr, _):
         return "rose" if s == "blue" else None
     monkeypatch.setattr(BR, "fuzzy_match_token_safe", _bad_fuzzy, raising=True)
-    assert BR.recover_base("blue", known_modifiers=km, known_tones=kt) == "blue"  # direct hit prioritaire
+    assert (
+            BR.recover_base("blue", known_modifiers=km, known_tones=kt) == "blue"
+    )  # direct hit prioritaire
     # Si on empêche le direct hit pour tester le guard, on passe un vocab sans 'blue'
     assert BR.recover_base("blue", known_modifiers=km, known_tones={"rose"}) is None
 
@@ -139,8 +139,13 @@ def test_singularize_basic_rules():
 def test_normalize_token_hyphens_and_cosmetic_last():
     # keep_hyphens=False: hyphens → spaces ; dernière noun cosmétique au singulier
     assert N.normalize_token("Soft-Blue LIPSTICKS", keep_hyphens=False) == "soft blue lipstick"
-    # keep_hyphens=True: on garde les tirets ; pas de singulier car le segment "gloss" seul n'est pas un nom cosmétique
-    assert N.normalize_token("navy-Blue   lip-Glosses", keep_hyphens=True) == "navy-blue lip-glosses"
+    # keep_hyphens=True: on garde les tirets ;
+    # pas de singulier car le segment "gloss" seul n'est pas un nom cosmétique
+    assert (
+            N.normalize_token("navy-Blue   lip-Glosses", keep_hyphens=True)
+            == "navy-blue lip-glosses"
+    )
+
 
 def test_unicode_hygiene_and_space_collapse():
     # guillemets/traits d'union fancy → le tiret long est normalisé puis converti en espace ;

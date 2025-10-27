@@ -1,10 +1,11 @@
 """
-llm
+llm.
 ===
 
 Does: Expose the public LLM interface: client factory, API-key check, and RGB querying.
 Returns: Re-exports of stable symbols from `llm_api_client` for external use.
 Used by: Descriptive color resolution, RGB pipelines, and higher-level orchestrators.
+
 Example:
     client = get_llm_client(); rgb = query_llm_for_rgb("dusty rose")
 """
@@ -14,10 +15,10 @@ from __future__ import annotations
 # ── Public API re-exports ─────────────────────────────────────────────────────
 from .llm_api_client import (
     OpenRouterClient,
+    build_color_prompt,
     get_llm_client,
     has_api_key,
     query_llm_for_rgb,
-    build_color_prompt,
 )
 
 __all__ = [

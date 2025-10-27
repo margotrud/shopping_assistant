@@ -1,8 +1,7 @@
 # src/color_sentiment_extractor/extraction/general/sentiment/core.py
-from __future__ import annotations
 
 """
-Sentiment Detection & Clause Splitting
+Sentiment Detection & Clause Splitting.
 --------------------------------------
 Does:
 - Hybrid sentiment detection (VADER first, BART MNLI fallback)
@@ -14,31 +13,28 @@ Does:
 - Logging (no print), configurable VADER thresholds, LRU cache
 - High-level API: analyze_sentence_sentiment(sentence) → list[ClauseResult]
 """
+from __future__ import annotations
 
 import logging
 import os
 import re
 from functools import lru_cache
 from typing import (
-    List,
-    Dict,
-    Tuple,
-    Optional,
+    TYPE_CHECKING,
+    Any,
     Literal,
     TypedDict,
-    Any,
-    FrozenSet,
-    TYPE_CHECKING,
 )
-
-import spacy
-from transformers import pipeline
 
 # VADER (lazy download & init in get_vader())
 import nltk
+import spacy
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
+from transformers import pipeline
 
-from color_sentiment_extractor.extraction.general.token import normalize_token  # kept for reuse elsewhere
+from color_sentiment_extractor.extraction.general.token import (
+    normalize_token,  # kept for reuse elsewhere
+)
 
 __docformat__ = "google"
 
@@ -51,19 +47,19 @@ Sentiment = Literal["positive", "negative", "neutral"]
 class ClauseResult(TypedDict):
     clause: str
     polarity: Sentiment
-    separator: Optional[str]
+    separator: str | None
 
 
 # result type for zero-shot pipeline
 class ZeroShotResult(TypedDict):
-    labels: List[str]
-    scores: List[float]
+    labels: list[str]
+    scores: list[float]
 
 
 # Buckets pour classify_segments_by_sentiment_no_neutral()
 class SentimentBuckets(TypedDict):
-    positive: List[str]
-    negative: List[str]
+    positive: list[str]
+    negative: list[str]
 
 
 __all__ = [
@@ -113,13 +109,13 @@ USE_FAKE_BART: bool = _env_bool("BART_MNLI_FAKE", False)
 # Single source of truth for BART candidates
 # (order is contractuel)
 # ─────────────────────────────────────────────
-_BART_CANDIDATES: List[Tuple[str, Sentiment]] = [
+_BART_CANDIDATES: list[tuple[str, Sentiment]] = [
     ("I like this", "positive"),
     ("I dislike this", "negative"),
     ("I'm unsure or neutral", "neutral"),
 ]
-_CANDIDATE_LABELS: List[str] = [t for (t, _) in _BART_CANDIDATES]
-_CANDIDATE_SENTIMENTS: List[Sentiment] = [s for (_, s) in _BART_CANDIDATES]
+_CANDIDATE_LABELS: list[str] = [t for (t, _) in _BART_CANDIDATES]
+_CANDIDATE_SENTIMENTS: list[Sentiment] = [s for (_, s) in _BART_CANDIDATES]
 
 
 def _map_bart_label_to_sentiment(label: str) -> Sentiment:
@@ -141,7 +137,8 @@ def _map_bart_label_to_sentiment(label: str) -> Sentiment:
 _nlp = None
 _vader = None
 _sentiment_pipeline = None
-_negex_ready: Optional[bool] = None  # tri-state: None (unknown), True (available), False (not installed)
+_negex_ready: bool | None = None  # tri-state: None (unknown), True (available),
+                                 # False (not installed)
 
 _SENTIMENT_MODEL_NAME = "facebook/bart-large-mnli"
 
@@ -164,21 +161,25 @@ def get_vader():
     if _vader is None:
         try:
             nltk.data.find("sentiment/vader_lexicon.zip")
-        except LookupError:
+        except LookupError as err:  # ← capture l'erreur d'origine
             if ALLOW_NLTK_DOWNLOAD:
                 logger.info("VADER lexicon not found. Downloading because ALLOW_NLTK_DOWNLOAD=1.")
                 nltk.download("vader_lexicon", quiet=True)
             else:
-                msg = "VADER lexicon not found and ALLOW_NLTK_DOWNLOAD=0. Please pre-install NLTK data."
+                msg = (
+                    "VADER lexicon not found and ALLOW_NLTK_DOWNLOAD=0. "
+                    "Please pre-install NLTK data."
+                )
                 logger.error(msg)
-                raise RuntimeError(msg)
+                raise RuntimeError(msg) from err  # ← chaînage explicite
         _vader = SentimentIntensityAnalyzer()
     return _vader
 
 
 class _FakeZeroShot:
     """Tiny offline replacement for tests. Returns a deterministic label order."""
-    def __call__(self, text: str, labels: List[str]) -> ZeroShotResult:
+
+    def __call__(self, text: str, labels: list[str]) -> ZeroShotResult:
         low = text.lower()
         # naive rules just for tests
         if any(k in low for k in ("love", "like", "fan of", "great", "good", "amazing")):
@@ -192,7 +193,9 @@ class _FakeZeroShot:
 
 
 def get_sentiment_pipeline():
-    """Zero-shot classifier with device auto-detection (GPU if available), or fake offline pipeline."""
+    """Zero-shot classifier with device auto-detection (GPU if available),
+    or fake offline pipeline.
+    """
     global _sentiment_pipeline
     if _sentiment_pipeline is None:
         if USE_FAKE_BART:
@@ -271,7 +274,7 @@ def _vader_score(text: str) -> float:
 # ─────────────────────────────────────────────
 def classify_segments_by_sentiment_no_neutral(
     has_splitter: bool,
-    segments: List[str]
+    segments: list[str]
 ) -> SentimentBuckets:
     """
     Classifies segments into positive/negative using VADER + BART (fallback).
@@ -299,18 +302,20 @@ def classify_segments_by_sentiment_no_neutral(
 # ─────────────────────────────────────────────
 def detect_sentiment(
     text: str,
-    vader: Optional[SentimentIntensityAnalyzer] = None,
-    bart: Optional[Any] = None
+    vader: SentimentIntensityAnalyzer | None = None,
+    bart: Any | None = None
 ) -> Sentiment:
-    """
-    Detects sentiment using a hybrid approach:
+    """Detects sentiment using a hybrid approach.
+
     1) VADER for quick lexical scoring (handles 'love', 'fan of', 'hate', etc.)
     2) BART MNLI fallback for ambiguous cases (candidate labels set above)
-    Returns: 'positive' | 'negative' | 'neutral'
+
+    Returns:
+        'positive' | 'negative' | 'neutral'
 
     DI hooks:
       - vader: pass a fake/fixture to avoid loading the real model in tests
-      - bart: pass a fake/fixture (callable like HF pipeline) in tests
+      - bart: pass a fake/fixture (callable like HF pipeline) in tests.
     """
     try:
         v = vader or get_vader()
@@ -360,7 +365,7 @@ def map_sentiment(predicted: Sentiment, text: str) -> Sentiment:
 # ─────────────────────────────────────────────
 # Clause Splitting
 # ─────────────────────────────────────────────
-def contains_sentiment_splitter_with_segments(text: str) -> Tuple[bool, List[str]]:
+def contains_sentiment_splitter_with_segments(text: str) -> tuple[bool, list[str]]:
     """
     Detects whether the sentence contains a clause-level sentiment split
     and returns segmented parts. Uses dependency parsing and punctuation fallback.
@@ -383,7 +388,7 @@ def contains_sentiment_splitter_with_segments(text: str) -> Tuple[bool, List[str
         try:
             # Correct package path; lazy import to avoid heavy imports at module load
             from color_sentiment_extractor.extraction.general.utils.load_config import load_config
-            discourse_adverbs: FrozenSet[str] = load_config("discourse_adverbs", mode="set")
+            discourse_adverbs: frozenset[str] = load_config("discourse_adverbs", mode="set")
         except Exception:
             discourse_adverbs = frozenset()
         if normalize_token(doc[0].text, keep_hyphens=True) not in discourse_adverbs:
@@ -410,7 +415,7 @@ def should_skip_split_due_to_or_negation(doc) -> bool:
     return has_neg and has_or and not has_punct
 
 
-def find_clause_splitter_index(doc) -> Optional[int]:
+def find_clause_splitter_index(doc) -> int | None:
     """
     Heuristics to find a clause-level splitter token (cc/mark/discourse).
     Skips conjunctions that connect two tone-like descriptors (see is_tone_conjunction).
@@ -432,60 +437,121 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
     Avoid splitting when a conjunction connects two tone-like tokens.
     If `antonym_fn` is provided, it will be used to reject pairs of ADJ that are antonyms.
     """
-    def dbg(*args): _dbg(debug, "[is_tone_conjunction]", *args)
+    def dbg(*args):
+        _dbg(debug, "[is_tone_conjunction]", *args)
 
     # Bounds
     if index < 0 or index >= len(doc):
-        dbg(f"Index {index} out of bounds → False"); return False
+        dbg(f"Index {index} out of bounds → False")
+        return False
 
     tok = doc[index]
     prev = doc[index - 1] if index > 0 else None
     next_ = doc[index + 1] if index + 1 < len(doc) else None
 
     dbg(f"doc='{doc.text}'")
-    dbg(f"center idx={index} text='{tok.text}' pos={tok.pos_} tag={tok.tag_} morph={tok.morph}")
+    dbg(
+        f"center idx={index} text='{tok.text}' pos={tok.pos_} tag={tok.tag_} "
+        f"morph={tok.morph}"
+    )
 
     if not prev or not next_:
-        dbg("Missing prev/next neighbor → False"); return False
+        dbg("Missing prev/next neighbor → False")
+        return False
 
     center_text = tok.lower_
-    conj_like = (center_text in {"and", "or", "&", "/"} or tok.pos_ == "CCONJ" or tok.tag_ in {"CC", "CCONJ"})
+    conj_like = (
+        center_text in {"and", "or", "&", "/"} or
+        tok.pos_ == "CCONJ" or
+        tok.tag_ in {"CC", "CCONJ"}
+    )
     dbg(f"conj_like={conj_like}")
 
     def is_adj_or_noun_like(t):
         low, pos, tag, morph, dep = t.lower_, t.pos_, t.tag_, t.morph, t.dep_
 
         if pos == "ADV":
-            return False, {"text": t.text, "pos": pos, "reason": "pos==ADV → reject"}
+            return (
+                False,
+                {"text": t.text, "pos": pos, "reason": "pos==ADV → reject"},
+            )
 
-        is_adj, is_nounish = (pos == "ADJ"), (pos in {"NOUN", "PROPN"})
+        is_adj = pos == "ADJ"
+        is_nounish = pos in {"NOUN", "PROPN"}
         verbform = morph.get("VerbForm")
-        is_participle     = (pos in {"VERB","AUX"}) and (tag == "VBN" or ("Part" in verbform if verbform else False))
-        is_past_ed_as_adj = (pos in {"VERB","AUX"}) and tag == "VBD" and low.endswith("ed")
-
-        # Reject plain verbs (unless post overrides)
-        if pos in {"VERB","AUX"} and not (is_participle or is_past_ed_as_adj):
-            return False, {"text": t.text, "pos": pos, "tag": tag, "morph": str(morph), "reason": "plain VERB/AUX → reject"}
-
-        has_adj_suffix = low.endswith("ish") or (low.endswith("y") and not low.endswith("ly"))
-        likely_descr = (
-            t.is_alpha and len(low) <= 8 and
-            pos not in {"PRON","DET","ADP","AUX","ADV","PART","SCONJ","PUNCT","SYM","NUM"} and
-            dep not in {"advmod"}
+        is_participle = (
+            pos in {"VERB", "AUX"} and
+            (tag == "VBN" or ("Part" in verbform if verbform else False))
+        )
+        is_past_ed_as_adj = (
+            pos in {"VERB", "AUX"} and
+            tag == "VBD" and
+            low.endswith("ed")
         )
 
-        like = is_adj or is_nounish or is_participle or is_past_ed_as_adj or has_adj_suffix or likely_descr
+        # Reject plain verbs (unless post overrides)
+        if pos in {"VERB", "AUX"} and not (is_participle or is_past_ed_as_adj):
+            return (
+                False,
+                {
+                    "text": t.text,
+                    "pos": pos,
+                    "tag": tag,
+                    "morph": str(morph),
+                    "reason": "plain VERB/AUX → reject",
+                },
+            )
+
+        has_adj_suffix = low.endswith("ish") or (
+            low.endswith("y") and not low.endswith("ly")
+        )
+        likely_descr = (
+            t.is_alpha
+            and len(low) <= 8
+            and pos
+            not in {
+                "PRON",
+                "DET",
+                "ADP",
+                "AUX",
+                "ADV",
+                "PART",
+                "SCONJ",
+                "PUNCT",
+                "SYM",
+                "NUM",
+            }
+            and dep not in {"advmod"}
+        )
+
+        like = (
+            is_adj
+            or is_nounish
+            or is_participle
+            or is_past_ed_as_adj
+            or has_adj_suffix
+            or likely_descr
+        )
         info = {
-            "text": t.text, "lemma": t.lemma_, "pos": pos, "tag": tag, "morph": str(morph), "dep": dep,
-            "adj": is_adj, "nounish": is_nounish, "participle": is_participle,
-            "past_ed_as_adj": is_past_ed_as_adj, "suffix_adj": has_adj_suffix,
-            "likely_descriptive": likely_descr, "adj_or_noun_like": like,
+            "text": t.text,
+            "lemma": t.lemma_,
+            "pos": pos,
+            "tag": tag,
+            "morph": str(morph),
+            "dep": dep,
+            "adj": is_adj,
+            "nounish": is_nounish,
+            "participle": is_participle,
+            "past_ed_as_adj": is_past_ed_as_adj,
+            "suffix_adj": has_adj_suffix,
         }
+
         return like, info
 
     prev_ok, prev_info = is_adj_or_noun_like(prev)
     next_ok, next_info = is_adj_or_noun_like(next_)
-    dbg("prev:", prev_info); dbg("next:", next_info)
+    dbg("prev:", prev_info)
+    dbg("next:", next_info)
 
     result = bool(conj_like and prev_ok and next_ok)
 
@@ -505,22 +571,41 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
     if conj_like and not result:
         p, n = prev.text.lower(), next_.text.lower()
         if center_text == "or":
-            if (prev.is_alpha and len(p) >= 5 and not p.endswith(("ing","ly"))
-                and next_.is_alpha and len(n) >= 5 and not n.endswith(("ing","ly"))):
-                dbg("override: 'X or Y' base-form noun/adj-like → True"); return True
+            if (
+                prev.is_alpha
+                and len(p) >= 5
+                and not p.endswith(("ing", "ly"))
+                and next_.is_alpha
+                and len(n) >= 5
+                and not n.endswith(("ing", "ly"))
+            ):
+                dbg("override: 'X or Y' base-form noun/adj-like → True")
+                return True
         if center_text == "and":
-            if (prev.is_alpha and p.endswith("y") and not p.endswith("ly") and len(p) >= 5
-                and next_.is_alpha and n.endswith("y") and not n.endswith("ly") and len(n) >= 5):
-                dbg("override: paired '-y' nouns/adjectives in 'X and Y' → True"); return True
+            if (
+                prev.is_alpha
+                and p.endswith("y")
+                and not p.endswith("ly")
+                and len(p) >= 5
+                and next_.is_alpha
+                and n.endswith("y")
+                and not n.endswith("ly")
+                and len(n) >= 5
+            ):
+                dbg("override: paired '-y' nouns/adjectives in 'X and Y' → True")
+                return True
 
     dbg(f"→ result={result}")
     return result
 
 
-def split_text_on_index(doc, i: int) -> List[str]:
+def split_text_on_index(doc, i: int) -> list[str]:
     """
-    Does: Splits a spaCy doc around token i; if i is first→return segments from the right (split on ; or ,),
-          if i is last→return segments from the left (split on ; or ,), else return [left_text, right_text].
+    Does: Splits a spaCy doc around token i.
+          If i is first → return segments from the right (split on ; or ,),
+          if i is last → return segments from the left (split on ; or ,),
+          else return [left_text, right_text].
+
     Returns: List[str] of trimmed segments; empty segments are removed.
     """
     # i = premier token → on prend ce qu'il y a APRÈS
@@ -539,12 +624,16 @@ def split_text_on_index(doc, i: int) -> List[str]:
     return [left, right]
 
 
-def fallback_split_on_punctuation(text: str) -> Tuple[bool, List[str]]:
+def fallback_split_on_punctuation(text: str) -> tuple[bool, list[str]]:
     """
     Split on punctuation as a last resort. If only one segment is found,
     return no-split.
     """
-    segments = [s.strip() for s in _PUNCT_SPLIT_RE.split(text) if s and s.strip() not in {".", ";", ","}]
+    segments = [
+        s.strip()
+        for s in _PUNCT_SPLIT_RE.split(text)
+        if s and s.strip() not in {".", ";", ","}
+    ]
     # The splitting above keeps separators in the list; we filtered them out.
     return (True, segments) if len(segments) >= 2 else (False, [text.strip()])
 
@@ -552,12 +641,13 @@ def fallback_split_on_punctuation(text: str) -> Tuple[bool, List[str]]:
 # ─────────────────────────────────────────────
 # Sentence-level API with separators
 # ─────────────────────────────────────────────
-def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], List[Optional[str]]]:
+def _split_sentence_with_separators(text: str, _doc=None) -> tuple[list[str], list[str | None]]:
     """
-    Returns (clauses, separators). Heuristic:
-      - use dependency splitter if found → separator = token text at split
-      - else split on punctuation and keep punctuation as separator tokens
-      - if no split → single clause, separator=None
+    Returns (clauses, separators). Heuristic.
+
+    - use dependency splitter if found → separator = token text at split.
+    - else split on punctuation and keep punctuation as separator tokens.
+    - if no split → single clause, separator=None.
     """
     nlp = get_nlp()
     doc = _doc if _doc is not None else nlp(text)
@@ -590,8 +680,8 @@ def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], Li
 
     # 3) Fallback to punctuation (preserve separators)
     parts = _PUNCT_SPLIT_RE.split(text)
-    clauses: List[str] = []
-    seps: List[Optional[str]] = []
+    clauses: list[str] = []
+    seps: list[str | None] = []
     current = ""
     for part in parts:
         if part and part.strip() in {".", ";", ","}:
@@ -609,16 +699,16 @@ def _split_sentence_with_separators(text: str, _doc=None) -> Tuple[List[str], Li
     return clauses, seps
 
 
-def analyze_sentence_sentiment(sentence: str) -> List[ClauseResult]:
-    """
-    High-level API: takes a full sentence and returns:
-      [{"clause": str, "polarity": "positive|negative|neutral", "separator": str|None}, ...]
+def analyze_sentence_sentiment(sentence: str) -> list[ClauseResult]:
+    """High-level API: takes a full sentence and returns.
+
+    [{"clause": str, "polarity": "positive|negative|neutral", "separator": str|None}, ...]
     """
     try:
         nlp = get_nlp()
         doc = nlp(sentence)
         clauses, separators = _split_sentence_with_separators(sentence, _doc=doc)
-        out: List[ClauseResult] = []
+        out: list[ClauseResult] = []
         for i, clause in enumerate(clauses):
             base = detect_sentiment(clause)
             pol = map_sentiment(base, clause)
@@ -635,28 +725,28 @@ def analyze_sentence_sentiment(sentence: str) -> List[ClauseResult]:
 # Negation Detection (negspaCy optional + soft negation)
 # ─────────────────────────────────────────────
 @lru_cache(maxsize=4096)
-def _is_negated_or_soft_cached(text: str) -> Tuple[bool, bool]:
+def _is_negated_or_soft_cached(text: str) -> tuple[bool, bool]:
     """Cached core for is_negated_or_soft when debug=False."""
     return _is_negated_or_soft_core(text, debug=False)
 
 
-def is_negated_or_soft(text: str, debug: bool = False) -> Tuple[bool, bool]:
-    """
-    Returns (hard_negation, soft_negation), mutually exclusive.
-      - Soft motif: (neg cue) + 'too' + ADJ
-        neg cue := Polarity=Neg OR lemma in {'not','no'} OR PRON/ADV starting with 'no'
-      - Hard cues (outside any soft motif):
-          R1: token.dep_ == 'neg'
-          R2: token.morph.Polarity == 'Neg'
-          R3: 'no' as DET (dep=det) of ADJ/NOUN/PROPN (e.g., 'no good', 'no problem')
-          R4: PRON starting with 'no' as core argument (nsubj/obj/attr, etc.)
+def is_negated_or_soft(text: str, debug: bool = False) -> tuple[bool, bool]:
+    """Returns (hard_negation, soft_negation), mutually exclusive.
+
+    - Soft motif: (neg cue) + 'too' + ADJ
+      neg cue := Polarity=Neg OR lemma in {'not','no'} OR PRON/ADV starting with 'no'
+    - Hard cues (outside any soft motif):
+        R1: token.dep_ == 'neg'
+        R2: token.morph.Polarity == 'Neg'
+        R3: 'no' as DET (dep=det) of ADJ/NOUN/PROPN (e.g., 'no good', 'no problem')
+        R4: PRON starting with 'no' as core argument (nsubj/obj/attr, etc.)
     """
     if not debug:
         return _is_negated_or_soft_cached(text)
     return _is_negated_or_soft_core(text, debug=True)
 
 
-def _is_negated_or_soft_core(text: str, debug: bool = False) -> Tuple[bool, bool]:
+def _is_negated_or_soft_core(text: str, debug: bool = False) -> tuple[bool, bool]:
     _dbg(debug, f"\n[INPUT] {text!r}")
 
     nlp = ensure_negex()
@@ -683,8 +773,8 @@ def _is_negated_or_soft_core(text: str, debug: bool = False) -> Tuple[bool, bool
     # --- SOFT motif: (neg cue) + 'too' + ADJ ---
     soft_neg = False
     soft_shield_idxs: set[int] = set()
-    soft_start: Optional[int] = None
-    soft_end: Optional[int] = None
+    soft_start: int | None = None
+    soft_end: int | None = None
     for i in range(len(doc) - 2):
         t1, t2, t3 = doc[i], doc[i + 1], doc[i + 2]
         neg_cue = (
@@ -699,15 +789,21 @@ def _is_negated_or_soft_core(text: str, debug: bool = False) -> Tuple[bool, bool
                 if t1.morph.get("Polarity") == ["Neg"]
                 else ("lemma" if t1.lemma_.lower() in {"not", "no"} else "pron/adv_no*")
             )
-            _dbg(True, f"[SOFT CHECK] window=({t1.text}, {t2.text}, {t3.text}) "
-                       f"→ neg_cue={why} match={motif}")
+            _dbg(
+                True,
+                f"[SOFT CHECK] window=({t1.text}, {t2.text}, {t3.text}) "
+                f"→ neg_cue={why} match={motif}",
+            )
         if motif:
             soft_neg = True
             soft_start, soft_end = i, i + 2
-            soft_shield_idxs.update({i, i+1, i+2})
+            soft_shield_idxs.update({i, i + 1, i + 2})
             if debug:
-                _dbg(True, f"[SOFT SHIELD] shielding indices {sorted(soft_shield_idxs)} "
-                           f"for tokens {[doc[j].text for j in sorted(soft_shield_idxs)]}")
+                _dbg(
+                    True,
+                    f"[SOFT SHIELD] shielding indices {sorted(soft_shield_idxs)} "
+                    f"for tokens {[doc[j].text for j in sorted(soft_shield_idxs)]}",
+                )
             break
 
     # helper pour checker si un index est hors du span soft
@@ -718,7 +814,7 @@ def _is_negated_or_soft_core(text: str, debug: bool = False) -> Tuple[bool, bool
         return (idx < soft_start) or (idx > soft_end)
 
     # --- HARD cues (check only OUTSIDE soft window if soft exists) ---
-    fired: Optional[Tuple[str, int, str]] = None
+    fired: tuple[str, int, str] | None = None
 
     # R1: dep=neg
     for i, tok in enumerate(doc):
@@ -762,7 +858,10 @@ def _is_negated_or_soft_core(text: str, debug: bool = False) -> Tuple[bool, bool
     if debug:
         _dbg(True, f"[RESULT] hard_neg={hard_neg}, soft_neg={soft_neg}")
         if fired:
-            _dbg(True, f"[HARD-NEG RULE FIRED] {fired[0]} by token #{fired[1]} -> {fired[2]!r}")
+            _dbg(
+                True,
+                f"[HARD-NEG RULE FIRED] {fired[0]} by token #{fired[1]} -> {fired[2]!r}",
+            )
 
     return hard_neg, soft_neg
 

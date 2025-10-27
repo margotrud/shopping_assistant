@@ -1,19 +1,22 @@
 # src/color_sentiment_extractor/extraction/color/fuzzy/conflict_rules.py
-from __future__ import annotations
 
 """
-conflict_rules.py
+conflict_rules.py.
 
-Does: Detect simple conflicts between tokens/aliases: negation (e.g., "no shimmer") and single-token morphological embedding.
+Does: Detect simple conflicts between tokens/aliases: negation (e.g., "no shimmer") 
+and single-token morphological embedding.
+
 Returns: Boolean checks for negation conflicts and embedded-alias conflicts.
-Used by: Fuzzy/alias validation and conflict resolution steps in extraction pipelines.
+Used by: Fuzzy/alias validation and conflict resolution steps in 
+extraction pipelines.
 """
+
+from __future__ import annotations
 
 import logging
 import re
 
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-
 
 __all__ = [
     "is_negation_conflict",
@@ -38,10 +41,9 @@ _NEGATION_PATTERNS = [
 # 1) Negation conflict
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _strip_negation(s: str) -> str | None:
-    """
-    Does: If s starts with a negation marker (EN/FR), return the negated phrase; else None.
-    """
+    """Does: If s starts with a negation marker (EN/FR), return the negated phrase; else None."""
     if not s:
         return None
     x = normalize_token(s, keep_hyphens=True)
@@ -75,14 +77,18 @@ def is_negation_conflict(a: str, b: str) -> bool:
     # Compare on surface OR recovered base(s)
     if a_base_phrase is not None:
         a_base_surface = normalize_token(a_base_phrase, keep_hyphens=True)
-        a_base_recovered = recover_base(a_base_surface, use_cache=True, debug=False) or a_base_surface
+        a_base_recovered = (
+            recover_base(a_base_surface, use_cache=True, debug=False) or a_base_surface
+        )
 
         b_base_recovered = recover_base(b_norm, use_cache=True, debug=False) or b_norm
         return a_base_surface == b_norm or a_base_recovered == b_base_recovered
 
     if b_base_phrase is not None:
         b_base_surface = normalize_token(b_base_phrase, keep_hyphens=True)
-        b_base_recovered = recover_base(b_base_surface, use_cache=True, debug=False) or b_base_surface
+        b_base_recovered = (
+            recover_base(b_base_surface, use_cache=True, debug=False) or b_base_surface
+        )
 
         a_base_recovered = recover_base(a_norm, use_cache=True, debug=False) or a_norm
         return b_base_surface == a_norm or b_base_recovered == a_base_recovered
@@ -93,6 +99,7 @@ def is_negation_conflict(a: str, b: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2) Embedded alias conflict
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def is_embedded_alias_conflict(longer: str, shorter: str, min_len: int = 3) -> bool:
     """

@@ -1,8 +1,7 @@
 # src/color_sentiment_extractor/extraction/general/fuzzy/fuzzy_core.py
-from __future__ import annotations
 
 """
-fuzzy_core.py
+fuzzy_core.py.
 
 Does: Core fuzzy engine for token comparison: similarity scoring, base recovery,
       conflict/negation-aware checks, and safe best-match against a known set.
@@ -10,17 +9,17 @@ Returns: Scoring/match helpers (exact/strong/best-match) for higher-level extrac
 Used by: General fuzzy matching across color/expression/token pipelines.
 """
 
+from __future__ import annotations
+
 import logging
 import re
-from typing import Optional, Callable
-from collections.abc import Iterable, Set as AbcSet
+from collections.abc import Callable, Iterable
+from collections.abc import Set as AbcSet
 
 from rapidfuzz import fuzz  # performant, no numpy dependency
 
-# éviter tout import depuis le package '...fuzzy' (sinon boucle)
-from .scoring import fuzzy_token_score
 from .conflict_rules import is_negation_conflict
-
+from .scoring import fuzzy_token_score
 
 __all__ = [
     "collapse_duplicates",
@@ -47,11 +46,10 @@ LENGTH_DELTA_SKIP = 2  # pre-filter for best-match loop
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 def _norm_token(text: str, *, keep_hyphens: bool = False) -> str:
-    """
-    Lazy normalize: tente d'utiliser normalize_token; sinon fallback local.
-    """
+    """Lazy normalize: tente d'utiliser normalize_token; sinon fallback local."""
     try:
         from color_sentiment_extractor.extraction.general.token import normalize_token as _nt
+
         return _nt(text, keep_hyphens=keep_hyphens)
     except Exception:
         t = (text or "").lower().strip()
@@ -87,7 +85,7 @@ def is_single_substitution(a: str, b: str) -> bool:
     """
     if len(a) != len(b):
         return False
-    return sum(1 for x, y in zip(a, b) if x != y) == 1
+    return sum(1 for x, y in zip(a, b, strict=False) if x != y) == 1
 
 
 def _safe_norm(s: str) -> str:
@@ -99,7 +97,7 @@ def _safe_norm(s: str) -> str:
     return " ".join(s.split())
 
 
-def _in_conflict_groups(a: str, b: str, groups: Optional[Iterable]) -> bool:
+def _in_conflict_groups(a: str, b: str, groups: Iterable | None) -> bool:
     """
     Does: Generic membership check for semantic conflict groups.
     Returns: True if a and b are distinct members of any group.
@@ -119,7 +117,10 @@ def _in_conflict_groups(a: str, b: str, groups: Optional[Iterable]) -> bool:
                     return True
         else:
             for g in groups:
-                s = {_norm_token(x) for x in (g if isinstance(g, (list, tuple, set, frozenset)) else [g])}
+                s = {
+                    _norm_token(x)
+                    for x in (g if isinstance(g, (list, tuple, set, frozenset)) else [g])
+                }
                 if a in s and b in s and a != b:
                     return True
     except Exception:
@@ -141,7 +142,8 @@ def fuzzy_token_match(a: str, b: str) -> float:
         from color_sentiment_extractor.extraction.general.token.base_recovery import (
             recover_base as _imported_recover_base,  # noqa: N816
         )
-        _recover_base: Optional[Callable[..., Optional[str]]] = _imported_recover_base
+
+        _recover_base: Callable[..., str | None] | None = _imported_recover_base
     except Exception:
         _recover_base = None
 
@@ -167,7 +169,7 @@ def is_strong_fuzzy_match(
     b: str,
     threshold: int = STRONG_THRESHOLD,
     *,
-    conflict_groups: Optional[Iterable] = None,
+    conflict_groups: Iterable | None = None,
     negation_check: bool = True,
 ) -> bool:
     """
@@ -190,6 +192,7 @@ def is_exact_match(a: str, b: str) -> bool:
     Does: Normalize, strip non-alnum, accept same or ratio ≥ EXACT_MIN_RATIO.
     Returns: Boolean.
     """
+
     def clean(text: str) -> str:
         norm = _norm_token(text, keep_hyphens=True)
         return re.sub(r"[^a-z0-9]", "", norm.lower())
@@ -209,7 +212,7 @@ def fuzzy_match_token_safe(
     known_tokens: AbcSet[str],
     threshold: int = STRONG_THRESHOLD,
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Safe best-match: exact/edit-like/normalized/base-recovery → fuzzy.
     Returns: Candidate or None if below threshold.
@@ -219,7 +222,8 @@ def fuzzy_match_token_safe(
         from color_sentiment_extractor.extraction.general.token.base_recovery import (
             recover_base as _imported_recover_base,  # noqa: N816
         )
-        _recover_base: Optional[Callable[..., Optional[str]]] = _imported_recover_base
+
+        _recover_base: Callable[..., str | None] | None = _imported_recover_base
     except Exception:
         _recover_base = None
 
@@ -230,7 +234,7 @@ def fuzzy_match_token_safe(
     if not raw:
         return None
 
-    best_match: Optional[str] = None
+    best_match: str | None = None
     best_score: float = 0.0
 
     if debug:
@@ -275,7 +279,7 @@ def fuzzy_match_token_safe(
         # 5a) single deletion (cand plus long d’1)
         if len(cand) == len(raw) + 1:
             for i in range(len(cand)):
-                if cand[:i] + cand[i + 1:] == raw:
+                if cand[:i] + cand[i + 1 :] == raw:
                     if debug:
                         log.debug("[DEL] %r ← %r", raw, cand)
                     return candidate
@@ -283,7 +287,7 @@ def fuzzy_match_token_safe(
         # 5b) single insertion (raw plus long d’1)
         if len(raw) == len(cand) + 1:
             for i in range(len(raw)):
-                if raw[:i] + raw[i + 1:] == cand:
+                if raw[:i] + raw[i + 1 :] == cand:
                     if debug:
                         log.debug("[INS] %r → %r", raw, cand)
                     return candidate

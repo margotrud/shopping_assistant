@@ -1,5 +1,5 @@
 """
-sentiment
+sentiment.
 =========
 
 Package for sentiment analysis and color preference routing.

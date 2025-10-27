@@ -1,5 +1,6 @@
 # tests/test_color_suffix_rules.py
 from __future__ import annotations
+
 import pytest
 
 # Module sous test
@@ -133,7 +134,16 @@ def test_apply_reverse_override(base, token, expected):
 def test_collapse_repeated_consonant_hits_known_sets(caplog):
     known_modifiers = {"slim", "dust"}
     known_tones = {"rose", "ink"}
-    assert r._collapse_repeated_consonant("slimm", known_modifiers, known_tones, debug=True) == "slim"
+    assert (
+            r._collapse_repeated_consonant(
+                "slimm",
+                known_modifiers,
+                known_tones,
+                debug=True,
+            )
+            == "slim"
+    )
+
 
 def test_collapse_repeated_consonant_noop_when_unknown():
     known_modifiers: set[str] = set()

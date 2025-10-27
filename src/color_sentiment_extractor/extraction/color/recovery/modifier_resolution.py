@@ -1,11 +1,12 @@
 # extraction/color/recovery/modifier_resolution.py
 """
-modifier_resolution
+modifier_resolution.
 ===================
 
 Does:
     Resolve descriptive modifier tokens via normalize → base recovery,
     direct/compound matches, suffix handling, and guarded fuzzy fallback.
+
 Returns:
     Public helpers to validate tones, resolve modifiers, and filter conflicts.
 """
@@ -13,7 +14,7 @@ Returns:
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional, Set, Tuple, AbstractSet
+from collections.abc import Iterable, Set
 
 from color_sentiment_extractor.extraction.color import (
     BLOCKED_TOKENS,
@@ -21,9 +22,9 @@ from color_sentiment_extractor.extraction.color import (
     get_known_tones,  # light API access to tones
 )
 from color_sentiment_extractor.extraction.general.token import (
+    normalize_token,
     recover_base,
     singularize,
-    normalize_token,
 )
 from color_sentiment_extractor.extraction.general.types import TokenLike
 
@@ -44,8 +45,9 @@ __all__ = [
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
+
 # ── Lazy vocab fetch (avoid strong deps) ──────────────────────────────────────
-def _get_known_tones() -> Set[str]:
+def _get_known_tones() -> set[str]:
     """Does: Get tones via public color API; empty set on failure."""
     try:
         return set(get_known_tones())
@@ -56,14 +58,16 @@ def _get_known_tones() -> Set[str]:
 # =============================================================================
 # 1) TONE AND COLOR VALIDATION HELPERS
 # =============================================================================
-def is_known_tone(word: str, known_tones: Set[str], all_webcolor_names: Set[str]) -> bool:
+def is_known_tone(word: str, known_tones: set[str], all_webcolor_names: set[str]) -> bool:
     """Does: Check if a normalized token is a tone or standard web color. Returns: bool."""
     norm = normalize_token(word, keep_hyphens=True)
     return norm in known_tones or norm in all_webcolor_names
 
 
-def is_valid_tone(phrase: str, known_tones: Set[str], debug: bool = False) -> bool:
-    """Does: Validate a phrase as a known tone via normalize + strict base recovery. Returns: bool."""
+def is_valid_tone(phrase: str, known_tones: set[str], debug: bool = False) -> bool:
+    """Does: Validate a phrase as a known tone via normalize + strict base recovery.
+    Returns: bool.
+    """
     norm = normalize_token(phrase, keep_hyphens=True)
     if norm in known_tones:
         return True
@@ -82,11 +86,13 @@ def is_valid_tone(phrase: str, known_tones: Set[str], debug: bool = False) -> bo
 # =============================================================================
 def match_direct_modifier(
     token: str,
-    known_modifiers: Set[str],
-    known_tones: Optional[Set[str]] = None,
+    known_modifiers: set[str],
+    known_tones: set[str] | None = None,
     debug: bool = False,
-) -> Optional[str]:
-    """Does: Resolve to a known modifier via direct match → base recovery → light fallbacks. Returns: str|None."""
+) -> str | None:
+    """Does: Resolve to a known modifier via direct match → base recovery → light fallbacks.
+    Returns: str|None.
+    """
     raw = token
     token = normalize_token(token, keep_hyphens=True)
 
@@ -148,11 +154,13 @@ def match_direct_modifier(
 
 def match_suffix_fallback(
     token: str,
-    known_modifiers: Set[str],
-    known_tones: Optional[Set[str]] = None,
+    known_modifiers: set[str],
+    known_tones: set[str] | None = None,
     debug: bool = False,
-) -> Optional[str]:
-    """Does: Resolve noisy/suffixed modifiers via recovery; accepts spaced forms. Returns: str|None."""
+) -> str | None:
+    """Does: Resolve noisy/suffixed modifiers via recovery; accepts spaced forms.
+    Returns: str|None.
+    """
     norm = normalize_token(token, keep_hyphens=True)
     raw = norm.lower()
     if debug and logger.isEnabledFor(logging.DEBUG):
@@ -187,10 +195,10 @@ def match_suffix_fallback(
 
 def recover_y_with_fallback(
     token: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """Does: Resolve '-y' family to a canonical base via unified recovery. Returns: str|None."""
     norm = normalize_token(token, keep_hyphens=True)
     base = recover_base(
@@ -208,13 +216,15 @@ def recover_y_with_fallback(
 # =============================================================================
 def resolve_modifier_token(
     raw_token: str,
-    known_modifiers: Set[str],
-    known_tones: Optional[Set[str]] = None,
+    known_modifiers: set[str],
+    known_tones: set[str] | None = None,
     *,
     fuzzy: bool = True,
     debug: bool = False,
-) -> Optional[str]:
-    """Does: Normalize + recover_base to resolve a modifier. Keeps tones as-is if provided. Returns: str|None."""
+) -> str | None:
+    """Does: Normalize + recover_base to resolve a modifier. Keeps tones as-is if provided.
+    Returns: str|None.
+    """
     if not raw_token:
         return None
 
@@ -249,7 +259,7 @@ def should_suppress_compound(mod: str, tone: str) -> bool:
 def is_blocked_modifier_tone_pair(
     modifier: str,
     tone: str,
-    blocked_pairs: AbstractSet[Tuple[str, str]] = BLOCKED_TOKENS,
+    blocked_pairs: Set[tuple[str, str]] = BLOCKED_TOKENS,
 ) -> bool:
     """Does: Check if (modifier, tone) is explicitly blocked (symmetric). Returns: bool."""
     m = normalize_token(modifier, keep_hyphens=True)
@@ -257,7 +267,7 @@ def is_blocked_modifier_tone_pair(
     return (m, t) in blocked_pairs or (t, m) in blocked_pairs
 
 
-def is_modifier_compound_conflict(expression: str, modifier_tokens: Set[str]) -> bool:
+def is_modifier_compound_conflict(expression: str, modifier_tokens: set[str]) -> bool:
     """Does: Resolve expression and test overlap with known modifiers. Returns: bool."""
     resolved = resolve_modifier_token(
         expression,
@@ -271,12 +281,14 @@ def is_modifier_compound_conflict(expression: str, modifier_tokens: Set[str]) ->
 
 def resolve_fallback_tokens(
     tokens: Iterable[TokenLike],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
     debug: bool = False,
-) -> Set[str]:
-    """Does: Recover missed modifier/tone tokens from a stream (rule-first, LLM-free). Returns: set[str]."""
-    resolved: Set[str] = set()
+) -> set[str]:
+    """Does: Recover missed modifier/tone tokens from a stream (rule-first, LLM-free).
+    Returns: set[str].
+    """
+    resolved: set[str] = set()
 
     for tok in tokens:
         raw = normalize_token(tok.text, keep_hyphens=True)

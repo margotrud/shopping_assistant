@@ -1,5 +1,5 @@
 """
-classification
+classification.
 Does: Expose public API for building and formatting tone↔modifier mappings.
 Exports: build_tone_modifier_mappings, format_tone_modifier_mappings.
 """

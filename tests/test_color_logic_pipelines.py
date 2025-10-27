@@ -1,12 +1,22 @@
 # tests/test_color_logic_pipelines.py
+"""
+Tests for color.logic.pipelines modules.
+- On crée des stubs minimaux (utils / expression_helpers)
+  avant d'importer phrase_pipeline & rgb_pipeline.
+"""
+
+from __future__ import annotations
+
+import importlib
 import sys
 import types
-import importlib
+
 import pytest
 
 # -----------------------------------------------------------------------------
 # 0) Patch minimal utils + expression stubs AVANT d'importer les pipelines
 # -----------------------------------------------------------------------------
+
 # Stub _try_simplified_match (appelé par rgb_pipeline → utils)
 try:
     import color_sentiment_extractor.extraction.color.utils as color_utils
@@ -16,11 +26,15 @@ except Exception:
 if not hasattr(color_utils, "_try_simplified_match"):
     def _try_simplified_match_stub(phrase: str, debug: bool = False):
         return None
-    color_utils._try_simplified_match = _try_simplified_match_stub  # type: ignore
+
+    color_utils._try_simplified_match = _try_simplified_match_stub  # type: ignore[attr-defined]
+
 importlib.reload(color_utils)
 
-# Stub complet pour general.expression.expression_helpers (évite fuzzy.match_expression_aliases)
-expr_helpers_name = "color_sentiment_extractor.extraction.general.expression.expression_helpers"
+# Stub complet pour general.expression.expression_helpers
+expr_helpers_name = (
+    "color_sentiment_extractor.extraction.general.expression.expression_helpers"
+)
 if expr_helpers_name not in sys.modules:
     expr_helpers_mod = types.ModuleType(expr_helpers_name)
 
@@ -46,14 +60,17 @@ if expr_helpers_name not in sys.modules:
 
     # Export minimal API
     expr_helpers_mod.map_expressions_to_tones = map_expressions_to_tones
-    expr_helpers_mod.get_matching_expression_tags_cached = get_matching_expression_tags_cached
+    expr_helpers_mod.get_matching_expression_tags_cached = (
+        get_matching_expression_tags_cached
+    )
     expr_helpers_mod.get_all_trigger_tokens = get_all_trigger_tokens
     expr_helpers_mod.get_glued_token_vocabulary = get_glued_token_vocabulary
     expr_helpers_mod._inject_expression_modifiers = _inject_expression_modifiers
 
     sys.modules[expr_helpers_name] = expr_helpers_mod
 
-# Ensure the package module re-exports those names (matches your __init__.py)
+# Assure que color_sentiment_extractor.extraction.general.expression
+# ré-exporte ces symboles
 expr_pkg_name = "color_sentiment_extractor.extraction.general.expression"
 if expr_pkg_name not in sys.modules:
     expr_pkg = types.ModuleType(expr_pkg_name)
@@ -71,8 +88,13 @@ if expr_pkg_name not in sys.modules:
 # -----------------------------------------------------------------------------
 # 1) Imports SUT (maintenant safe)
 # -----------------------------------------------------------------------------
-from color_sentiment_extractor.extraction.color.logic.pipelines import phrase_pipeline as pp
-from color_sentiment_extractor.extraction.color.logic.pipelines import rgb_pipeline as rp
+from color_sentiment_extractor.extraction.color.logic.pipelines import (  # noqa: E402
+    phrase_pipeline as pp,
+)
+from color_sentiment_extractor.extraction.color.logic.pipelines import (  # noqa: E402
+    rgb_pipeline as rp,
+)
+
 
 # -----------------------------------------------------------------------------
 # 2) Helpers pour charger les vrais vocabs (sinon skip)
@@ -83,8 +105,11 @@ def _load_known_sets():
     expr = {}
     try:
         from color_sentiment_extractor.extraction.color.constants import (
-            KNOWN_MODIFIERS, KNOWN_TONES, WEBCOLOR_NAMES
+            KNOWN_MODIFIERS,
+            KNOWN_TONES,
+            WEBCOLOR_NAMES,
         )
+
         km, kt, names = set(KNOWN_MODIFIERS), set(KNOWN_TONES), set(WEBCOLOR_NAMES)
     except Exception:
         pass
@@ -92,8 +117,13 @@ def _load_known_sets():
     if km is None or kt is None:
         try:
             from color_sentiment_extractor.extraction.color import (
-                known_modifiers as _km, known_tones as _kt, all_webcolor_names as _names
+                all_webcolor_names as _names,
             )
+            from color_sentiment_extractor.extraction.color import (
+                known_modifiers as _km,
+            )
+            from color_sentiment_extractor.extraction.color import known_tones as _kt
+
             km = set(_km() if callable(_km) else _km)
             kt = set(_kt() if callable(_kt) else _kt)
             names = set(_names() if callable(_names) else _names)
@@ -103,15 +133,19 @@ def _load_known_sets():
     # expressions optionnel – OK si vide
     try:
         from color_sentiment_extractor.extraction.general.expression import (
-            get_expression_map as _get_expr_map
+            get_expression_map as _get_expr_map,
         )
+
         expr = _get_expr_map() if callable(_get_expr_map) else dict(_get_expr_map)
     except Exception:
         expr = {}
 
     if not km or not kt:
-        pytest.skip("Impossible de charger known_modifiers/known_tones depuis le projet.")
+        pytest.skip(
+            "Impossible de charger known_modifiers/known_tones depuis le projet."
+        )
     return km, kt, names, expr
+
 
 # -----------------------------------------------------------------------------
 # 3) Fixtures
@@ -120,11 +154,14 @@ def _load_known_sets():
 def nlp_mock():
     # évite d'exiger en_core_web_sm
     import spacy
+
     return spacy.blank("en")
+
 
 @pytest.fixture(scope="module")
 def data():
     return _load_known_sets()
+
 
 # -----------------------------------------------------------------------------
 # 4) Tests phrase_pipeline
@@ -150,11 +187,13 @@ def test_extract_all_descriptive_color_phrases_basic(nlp_mock, data, monkeypatch
     assert sorted(res) == res
     assert any(tone in r for r in res)
 
+
 def test_extract_phrases_from_segment_filters_cosmetic(nlp_mock, data, monkeypatch):
     km, kt, names, expr = data
     monkeypatch.setattr(pp, "get_nlp", lambda: nlp_mock)
 
     from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
+
     tone = next(iter(kt))
     mod = next(iter(km))
     cosmetic = next(iter(COSMETIC_NOUNS))
@@ -171,9 +210,14 @@ def test_extract_phrases_from_segment_filters_cosmetic(nlp_mock, data, monkeypat
         debug=False,
     )
 
-    assert all(p.split()[-1].lower() not in {c.lower() for c in COSMETIC_NOUNS} for p in got)
+    assert all(
+        p.split()[-1].lower() not in {c.lower() for c in COSMETIC_NOUNS} for p in got
+    )
 
-def test_extract_phrases_from_segment_removes_redundant_singletons(nlp_mock, data, monkeypatch):
+
+def test_extract_phrases_from_segment_removes_redundant_singletons(
+    nlp_mock, data, monkeypatch
+):
     km, kt, names, expr = data
     monkeypatch.setattr(pp, "get_nlp", lambda: nlp_mock)
 
@@ -192,7 +236,9 @@ def test_extract_phrases_from_segment_removes_redundant_singletons(nlp_mock, dat
     )
 
     assert f"{mod} {tone}" in got
-    assert tone not in got  # singleton supprimé s'il existe déjà dans un composé
+    # singleton supprimé s'il existe déjà dans un composé
+    assert tone not in got
+
 
 def test_process_segment_colors_alignment(data):
     km, kt, names, expr = data
@@ -209,9 +255,14 @@ def test_process_segment_colors_alignment(data):
     )
 
     assert len(simplified) == len(rgbs) == len(phrases)
-    assert all((r is None) or (isinstance(r, tuple) and len(r) == 3) for r in rgbs)
+    assert all(
+        (r is None) or (isinstance(r, tuple) and len(r) == 3) for r in rgbs
+    )
 
-def test_aggregate_color_phrase_results_consistency(nlp_mock, data, monkeypatch):
+
+def test_aggregate_color_phrase_results_consistency(
+    nlp_mock, data, monkeypatch
+):
     km, kt, names, expr = data
     monkeypatch.setattr(pp, "get_nlp", lambda: nlp_mock)
 
@@ -237,6 +288,7 @@ def test_aggregate_color_phrase_results_consistency(nlp_mock, data, monkeypatch)
     assert set(rgb_map).issubset(tone_set)
     assert set(rgb_map).issubset(set(all_phrases))
 
+
 # -----------------------------------------------------------------------------
 # 5) Tests rgb_pipeline
 # -----------------------------------------------------------------------------
@@ -255,6 +307,7 @@ def test_process_color_phrase_single_known_tone(data):
 
     assert simplified == tone
     assert (rgb is None) or (isinstance(rgb, tuple) and len(rgb) == 3)
+
 
 def test_process_color_phrase_mod_tone_pair(data):
     km, kt = data[0], data[1]

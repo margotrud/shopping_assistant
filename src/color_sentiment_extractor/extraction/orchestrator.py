@@ -1,43 +1,20 @@
 # orchestrator.py
 from __future__ import annotations
 
-"""
-orchestrator.py
-===============
-
-Does: High-level orchestration to analyze color phrases (with/without sentiment),
-      deduplicate results, and build a nearest-color palette from known web colors.
-Returns:
-  - analyze_colors_with_sentiment(text, top_k) -> {"positif": [...], "negatif": [...]}
-  - analyze_colors(text, top_k) -> {
-        "primary": {"phrase": str|None, "rgb": (r,g,b)|None},
-        "alternatives": [ {name,rgb}, ... ],
-        "tones": set[str],
-        "phrases": list[str],
-        "rgb_map": dict[str, (r,g,b)]
-    }
-Used by: Product/search flows, color preference UIs, and debugging tools.
-"""
-
 import logging
 import os
 import sys
 from functools import lru_cache
 from typing import (
-    Dict,
-    FrozenSet,
-    List,
     Protocol,
-    Set,
-    Tuple,
     cast,
     runtime_checkable,
 )
 
 from color_sentiment_extractor.extraction.color.llm import get_llm_client
 from color_sentiment_extractor.extraction.color.logic import (
-    aggregate_color_phrase_results,
     LLMClientProto,
+    aggregate_color_phrase_results,
 )
 from color_sentiment_extractor.extraction.color.logic.pipelines.rgb_pipeline import (
     resolve_rgb_with_llm,
@@ -58,6 +35,25 @@ from color_sentiment_extractor.extraction.general.utils.load_config import load_
 
 logger = logging.getLogger(__name__)
 
+
+"""
+orchestrator.py
+===============
+
+Does: High-level orchestration to analyze color phrases (with/without sentiment),
+      deduplicate results, and build a nearest-color palette from known web colors.
+Returns:
+  - analyze_colors_with_sentiment(text, top_k) -> {"positif": [...], "negatif": [...]}
+  - analyze_colors(text, top_k) -> {
+        "primary": {"phrase": str|None, "rgb": (r,g,b)|None},
+        "alternatives": [ {name,rgb}, ... ],
+        "tones": set[str],
+        "phrases": list[str],
+        "rgb_map": dict[str, (r,g,b)]
+    }
+Used by: Product/search flows, color preference UIs, and debugging tools.
+"""
+
 # ── Lightweight local protocol for RGB resolver usage ────────────────────────
 @runtime_checkable
 class LLMClientRGBProto(Protocol):
@@ -68,10 +64,10 @@ class LLMClientRGBProto(Protocol):
 
 
 # ── Config snapshots ──────────────────────────────────────────────────────────
-known_modifiers: FrozenSet[str] = load_config("known_modifiers", mode="set")
-known_tones: FrozenSet[str] = get_known_tones()
+known_modifiers: frozenset[str] = load_config("known_modifiers", mode="set")
+known_tones: frozenset[str] = get_known_tones()
 # validated_dict: Dict[str, Dict[str, List[str]]] (aliases/modifiers/etc.)
-expression_map: Dict[str, Dict[str, List[str]]] = load_config(
+expression_map: dict[str, dict[str, list[str]]] = load_config(
     "expression_definition", mode="validated_dict"
 )
 
@@ -197,7 +193,8 @@ def _map_name_rgb_list(
 
 
 def _norm_name(name: str) -> str:
-    """Normalize CSS/XKCD names for strict de-duplication:
+    """Normalize CSS/XKCD names for strict de-duplication.
+
     - trim
     - lowercase
     - remove spaces, hyphens and underscores
@@ -253,18 +250,15 @@ def _dedupe_cross_lists(
     return [
         n
         for n in negatives
-        if (
-            isinstance(n, dict)
-            and _norm_name(cast(str, n.get("name", ""))) not in pos_keys
-        )
+        if (isinstance(n, dict) and _norm_name(cast(str, n.get("name", ""))) not in pos_keys)
     ]
 
 
 def _dedup_singles_against_compounds(
     singles: set[str],
     compounds: set[str],
-    known_mods: FrozenSet[str],
-    known_tns: FrozenSet[str],
+    known_mods: frozenset[str],
+    known_tns: frozenset[str],
 ) -> set[str]:
     """Drop single tokens covered by at least one compound (surface + recover_base)."""
     covered: set[str] = set()
@@ -384,9 +378,7 @@ def _extract_group_colors(
     def _apply_dedup(items: set[str]) -> set[str]:
         singles = {x for x in items if " " not in x}
         comps = {x for x in items if " " in x}
-        singles = _dedup_singles_against_compounds(
-            singles, comps, known_modifiers, known_tones
-        )
+        singles = _dedup_singles_against_compounds(singles, comps, known_modifiers, known_tones)
         return singles | comps
 
     tones: set[str] = _apply_dedup(set(tones_raw))
@@ -429,12 +421,13 @@ def _bundle_palette(
 def analyze_colors_with_sentiment(
     text: str, *, top_k: int = 12, debug: bool = False
 ) -> dict[str, list[dict[str, object]]]:
-    """Preference mode:
+    """Preference mode.
+
     Returns:
-      {
-        "positif": [{"name": <primary_like>, "rgb": (...) }, ...],
-        "negatif": [{"name": <primary_dislike>, "rgb": (...) }, ...]
-      }
+        {
+            "positif": [{"name": <primary_like>, "rgb": (...) }, ...],
+            "negatif": [{"name": <primary_dislike>, "rgb": (...) }, ...]
+        }
     """
     clauses = analyze_sentence_sentiment(text)
     pos_clauses = [c["clause"] for c in clauses if c.get("polarity") == "positive"]
@@ -452,12 +445,8 @@ def analyze_colors_with_sentiment(
     pos_primary = _pick_primary(pos_tones, pos_phrases)
     neg_primary = _pick_primary(neg_tones, neg_phrases)
 
-    pos_rgb = _resolve_rgb_for_phrase(
-        pos_primary, cast(LLMClientRGBProto, raw_client), debug=debug
-    )
-    neg_rgb = _resolve_rgb_for_phrase(
-        neg_primary, cast(LLMClientRGBProto, raw_client), debug=debug
-    )
+    pos_rgb = _resolve_rgb_for_phrase(pos_primary, cast(LLMClientRGBProto, raw_client), debug=debug)
+    neg_rgb = _resolve_rgb_for_phrase(neg_primary, cast(LLMClientRGBProto, raw_client), debug=debug)
 
     palette = _get_known_palette_cached()
 
@@ -480,9 +469,7 @@ def analyze_colors_with_sentiment(
     }
 
 
-def analyze_colors(
-    text: str, debug: bool = False, *, top_k: int = 12
-) -> dict[str, object]:
+def analyze_colors(text: str, debug: bool = False, *, top_k: int = 12) -> dict[str, object]:
     """Legacy “single block” mode (primary + alternatives).
     Also returns tones/phrases/rgb_map for integration/debug.
     """
@@ -502,9 +489,7 @@ def analyze_colors(
     def _apply_dedup(items: set[str]) -> set[str]:
         singles = {t for t in items if " " not in t}
         comps = {t for t in items if " " in t}
-        singles = _dedup_singles_against_compounds(
-            singles, comps, known_modifiers, known_tones
-        )
+        singles = _dedup_singles_against_compounds(singles, comps, known_modifiers, known_tones)
         return singles | comps
 
     tones: set[str] = _apply_dedup(set(tones_raw))
@@ -524,9 +509,7 @@ def analyze_colors(
 
     palette = _get_known_palette_cached()
     exclude_for_nearest = set(phrases) | ({primary_phrase} if primary_phrase else set())
-    alts_raw = _top_k_nearest(
-        primary_rgb, palette, exclude=exclude_for_nearest, k=top_k
-    )
+    alts_raw = _top_k_nearest(primary_rgb, palette, exclude=exclude_for_nearest, k=top_k)
 
     alts_clean = _map_name_rgb_list(alts_raw)
 
@@ -563,9 +546,7 @@ if __name__ == "__main__":
 
     # Demo — preferences
     print(
-        analyze_colors_with_sentiment(
-            "I love bright red but I hate purple", top_k=10, debug=True
-        )
+        analyze_colors_with_sentiment("I love bright red but I hate purple", top_k=10, debug=True)
     )
     # Demo — legacy
     # print(analyze_colors("Soft dusty rose glow lipstick", debug=True))

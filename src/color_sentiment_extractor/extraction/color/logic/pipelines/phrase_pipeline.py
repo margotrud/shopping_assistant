@@ -1,8 +1,9 @@
 """
-phrase_pipeline.py
+phrase_pipeline.py.
 ==================
 
-Does: Extract, validate, simplify, and map RGB for descriptive color phrases across text segments.
+Does: Extract, validate, simplify, and map RGB for descriptive color phrases across
+text segments.
 Returns: Extracted phrases (per segment), simplified tones, and a phrase→RGB map.
 Used By: color.logic.pipelines.rgb_pipeline, higher-level sentiment/aggregation flows.
 """
@@ -14,14 +15,9 @@ import logging
 import re
 from functools import lru_cache
 from typing import (
-    Dict,
-    List,
-    Optional,
     Protocol,
-    Set,
-    Tuple,
-    runtime_checkable,
     cast,
+    runtime_checkable,
 )
 
 import spacy
@@ -30,13 +26,14 @@ from spacy.language import Language
 # Prefer rapidfuzz; fallback to fuzzywuzzy.
 try:
     from rapidfuzz import fuzz as _fuzz
+
     ratio = _fuzz.ratio
 except Exception:  # pragma: no cover
     from fuzzywuzzy import fuzz as _fuzz  # type: ignore
+
     ratio = _fuzz.ratio
 
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS, COSMETIC_NOUNS
-from .rgb_pipeline import process_color_phrase
 from color_sentiment_extractor.extraction.color.strategies import (
     extract_compound_phrases,
     extract_lone_tones,
@@ -48,6 +45,8 @@ from color_sentiment_extractor.extraction.general.token import recover_base
 from color_sentiment_extractor.extraction.llm.types import (
     LLMClientProto as CoreLLMClientProto,
 )
+
+from .rgb_pipeline import process_color_phrase
 
 # ── Types & Globals ───────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
@@ -61,7 +60,9 @@ class LLMClientProto(Protocol):
     Structural contract for any LLM client we pass around.
     We only assume: given a phrase, it can maybe return an RGB tuple.
     """
-    def query_rgb(self, phrase: str) -> Optional[RGB]: ...
+
+    def query_rgb(self, phrase: str) -> RGB | None: ...
+
     # If rgb_pipeline.process_color_phrase actually calls a different method,
     # update this Protocol to match that method signature.
 
@@ -87,14 +88,14 @@ def _blocked(a: str, b: str) -> bool:
 # ── Public API ────────────────────────────────────────────────────────────────
 def extract_all_descriptive_color_phrases(
     text: str,
-    known_tones: Set[str],
-    known_modifiers: Set[str],
-    all_webcolor_names: Set[str],
+    known_tones: set[str],
+    known_modifiers: set[str],
+    all_webcolor_names: set[str],
     expression_map: dict,
-    llm_client: Optional[LLMClientProto] = None,
-    nlp: Optional[Language] = None,
+    llm_client: LLMClientProto | None = None,
+    nlp: Language | None = None,
     debug: bool = False,
-) -> List[str]:
+) -> list[str]:
     """
     Does: Extract compound, standalone, and lone-tone color phrases from raw text.
     Returns: Sorted, lowercased, deduplicated list of extracted phrases.
@@ -103,8 +104,8 @@ def extract_all_descriptive_color_phrases(
     nlp = nlp or get_nlp()
     tokens = nlp(text)
 
-    phrases: Set[str] = set()
-    raw_compounds: List[Tuple[str, str]] = []  # accumulateur (modifier, tone)
+    phrases: set[str] = set()
+    raw_compounds: list[tuple[str, str]] = []  # accumulateur (modifier, tone)
 
     # Compounds
     extract_compound_phrases(
@@ -137,15 +138,15 @@ def extract_all_descriptive_color_phrases(
 
 def extract_phrases_from_segment(
     segment: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     expression_map: dict,
-    llm_client: Optional[LLMClientProto] = None,
+    llm_client: LLMClientProto | None = None,
     cache=None,
-    nlp: Optional[Language] = None,
+    nlp: Language | None = None,
     debug: bool = False,
-) -> Set[str]:
+) -> set[str]:
     """
     Does: Extract and validate phrases via base recovery, fuzzy threshold, and filters.
     Returns: Set of validated phrases (no cosmetic-noun endings, no redundant singles).
@@ -186,7 +187,7 @@ def extract_phrases_from_segment(
             )
         return True
 
-    valid_results: Set[str] = set()
+    valid_results: set[str] = set()
 
     for phrase in raw_results:
         tokens = phrase.split()
@@ -249,15 +250,11 @@ def extract_phrases_from_segment(
                 valid_results.add(phrase)
 
     # Filter 1: remove phrases ending with cosmetic nouns
-    valid_results = {
-        phrase for phrase in valid_results if phrase.split()[-1] not in COSMETIC_NOUNS
-    }
+    valid_results = {phrase for phrase in valid_results if phrase.split()[-1] not in COSMETIC_NOUNS}
 
     # Filter 2: remove single tokens already present in compounds
     compound_tokens = {t for p in valid_results for t in p.split() if len(p.split()) > 1}
-    valid_results = {
-        p for p in valid_results if len(p.split()) > 1 or p not in compound_tokens
-    }
+    valid_results = {p for p in valid_results if len(p.split()) > 1 or p not in compound_tokens}
 
     if debug and logger.isEnabledFor(logging.DEBUG):
         logger.debug("[phrase_pipeline][FINAL VALID RESULTS] %s", valid_results)
@@ -266,20 +263,20 @@ def extract_phrases_from_segment(
 
 
 def process_segment_colors(
-    color_phrases: List[str],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    llm_client: Optional[LLMClientProto] = None,
+    color_phrases: list[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    llm_client: LLMClientProto | None = None,
     cache=None,
     debug: bool = False,
-) -> Tuple[List[str], List[Optional[RGB]]]:
+) -> tuple[list[str], list[RGB | None]]:
     """
     Does: Simplify phrases and resolve RGB for each extracted phrase.
     Returns: (simplified phrases list, RGB list aligned; None if unresolved).
     Used By: aggregate_color_phrase_results.
     """
-    simplified: List[str] = []
-    rgb_list: List[Optional[RGB]] = []
+    simplified: list[str] = []
+    rgb_list: list[RGB | None] = []
 
     for phrase in color_phrases:
         try:
@@ -296,9 +293,7 @@ def process_segment_colors(
             )
         except Exception as e:  # pragma: no cover
             if debug:
-                logger.exception(
-                    "[phrase_pipeline][process_color_phrase ERROR] %r: %s", phrase, e
-                )
+                logger.exception("[phrase_pipeline][process_color_phrase ERROR] %r: %s", phrase, e)
             simple, rgb = "", None
 
         if not simple:
@@ -316,28 +311,28 @@ def process_segment_colors(
 
 
 def aggregate_color_phrase_results(
-    segments: List[str],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    all_webcolor_names: Set[str],
+    segments: list[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    all_webcolor_names: set[str],
     expression_map: dict,
-    llm_client: Optional[LLMClientProto] = None,
+    llm_client: LLMClientProto | None = None,
     cache=None,
-    nlp: Optional[Language] = None,
+    nlp: Language | None = None,
     debug: bool = False,
-) -> Tuple[Set[str], List[str], Dict[str, RGB]]:
+) -> tuple[set[str], list[str], dict[str, RGB]]:
     """
     Does: Aggregate simplified tones and RGB across segments with guardrails.
     Returns: (tone set, all simplified phrases, phrase→RGB dict).
     Used By: downstream color/sentiment aggregation.
     """
 
-    def tokenize(text: str) -> List[str]:
+    def tokenize(text: str) -> list[str]:
         return [t for t in re.split(r"[^\w\-]+", text.lower()) if t]
 
-    def build_allowed_tokens(seg: str) -> Set[str]:
+    def build_allowed_tokens(seg: str) -> set[str]:
         raw_tokens = tokenize(seg)
-        allowed: Set[str] = set(raw_tokens)
+        allowed: set[str] = set(raw_tokens)
         for t in list(raw_tokens):
             if "-" in t:
                 allowed.add(t.replace("-", " "))
@@ -355,13 +350,13 @@ def aggregate_color_phrase_results(
                     allowed.add(base.replace("-", " "))
         return allowed
 
-    def phrase_ok(phrase: str, allowed: Set[str]) -> bool:
+    def phrase_ok(phrase: str, allowed: set[str]) -> bool:
         words = phrase.lower().split()
         return all(w in allowed for w in words)
 
-    tone_set: Set[str] = set()
-    all_phrases: List[str] = []
-    rgb_map: Dict[str, RGB] = {}
+    tone_set: set[str] = set()
+    all_phrases: list[str] = []
+    rgb_map: dict[str, RGB] = {}
 
     nlp = nlp or get_nlp()
 
@@ -391,7 +386,7 @@ def aggregate_color_phrase_results(
             debug=debug,
         )
 
-        for original, simple, rgb in zip(sorted(color_phrases), simplified, rgb_list):
+        for original, simple, rgb in zip(sorted(color_phrases), simplified, rgb_list, strict=False):
             # Guard: if LLM "simplified" a known tone into something else, keep original tone
             if simple != original and original in known_tones:
                 simple = original

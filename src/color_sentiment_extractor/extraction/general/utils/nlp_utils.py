@@ -1,18 +1,20 @@
 """
-nlp_utils.py
+nlp_utils.py.
 
 Does: Minimal NLP helpers for antonym checking (WordNet) and token lemmatization (spaCy).
 Returns: are_antonyms() → bool, lemmatize_token() → str.
 Used by: sentiment routing, extraction filters, and negation handling.
 """
 
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import Optional, Set, Iterable
 
 from nltk.corpus import wordnet
+
 from color_sentiment_extractor.extraction.general.token import normalize_token
 
 __all__ = ["are_antonyms", "lemmatize_token"]
+
 
 # ── Antonym checking (WordNet) ───────────────────────────────────────────────
 def _candidates(word: str) -> Iterable[str]:
@@ -28,10 +30,11 @@ def _candidates(word: str) -> Iterable[str]:
             candidates.append(w)
     return candidates
 
+
 @lru_cache(maxsize=10_000)
-def _normalized_antonyms(word: str) -> Set[str]:
+def _normalized_antonyms(word: str) -> set[str]:
     """Does: Return normalized antonyms for word via WordNet. Returns: set[str]."""
-    out: Set[str] = set()
+    out: set[str] = set()
     try:
         for cand in _candidates(word):
             for syn in wordnet.synsets(cand):
@@ -42,28 +45,38 @@ def _normalized_antonyms(word: str) -> Set[str]:
         return set()
     return out
 
+
 @lru_cache(maxsize=10_000)
 def are_antonyms(word1: str, word2: str) -> bool:
-    """
+    """Check if two words are antonyms.
+
     Does: True iff one word is in the normalized antonyms of the other.
     Returns: bool
     """
     variants1, variants2 = list(_candidates(word1)), list(_candidates(word2))
     if not variants1 or not variants2:
+
         return False
-    return any(v2 in _normalized_antonyms(v1) for v1 in variants1 for v2 in variants2) \
-        or any(v1 in _normalized_antonyms(v2) for v2 in variants2 for v1 in variants1)
+    return any(v2 in _normalized_antonyms(v1) for v1 in variants1 for v2 in variants2) or any(
+        v1 in _normalized_antonyms(v2) for v2 in variants2 for v1 in variants1
+    )
+
 
 # ── Lemmatization (spaCy if available) ───────────────────────────────────────
-_nlp: Optional[object] = None  # Will hold spaCy Language or False
+_nlp: object | None = None  # Will hold spaCy Language or False
+
 
 def _get_spacy():
-    """Does: Load spaCy en_core_web_sm once (lightweight). Returns: pipeline or None if unavailable."""
+    """Does: Load spaCy en_core_web_sm once (lightweight).
+    Returns: pipeline or None if unavailable.
+    """
     global _nlp
     if _nlp is not None:
+
         return _nlp or None
     try:
         import spacy
+
         try:
             _nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "textcat"])
         except Exception:
@@ -71,6 +84,7 @@ def _get_spacy():
     except Exception:
         _nlp = False
     return _nlp or None
+
 
 @lru_cache(maxsize=20_000)
 def lemmatize_token(token: str) -> str:

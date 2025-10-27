@@ -1,5 +1,5 @@
 """
-llm_api_client.py
+llm_api_client.py.
 =================
 
 Does: Build prompts, HTTP payloads and headers, call the OpenRouter chat API,
@@ -13,10 +13,10 @@ from __future__ import annotations
 # ── Imports & Typing ─────────────────────────────────────────────────────────
 import logging
 import os
-import time
 import random
 import re
-from typing import Optional, Tuple, Protocol
+import time
+from typing import Protocol
 
 import requests
 
@@ -33,9 +33,9 @@ LLM_TEMPERATURE = float(os.getenv("OPENROUTER_TEMPERATURE", "0.4"))
 LLM_TIMEOUT = float(os.getenv("OPENROUTER_TIMEOUT", "10"))  # seconds
 
 # Backoff config
-BACKOFF_BASE = 1.0        # base seconds added each attempt
-BACKOFF_MIN = 1.2         # min multiplier
-BACKOFF_SPREAD = 0.6      # random spread added to multiplier
+BACKOFF_BASE = 1.0  # base seconds added each attempt
+BACKOFF_MIN = 1.2  # min multiplier
+BACKOFF_SPREAD = 0.6  # random spread added to multiplier
 
 # Single session for connection reuse
 _session = requests.Session()
@@ -56,8 +56,8 @@ class RGBCache(Protocol):
     Returns: get_rgb → Optional[Tuple[int,int,int]]; store_rgb → None.
     """
 
-    def get_rgb(self, key: str) -> Optional[Tuple[int, int, int]]: ...
-    def store_rgb(self, key: str, value: Tuple[int, int, int]) -> None: ...
+    def get_rgb(self, key: str) -> tuple[int, int, int] | None: ...
+    def store_rgb(self, key: str, value: tuple[int, int, int]) -> None: ...
 
 
 # ── Minimal client for phrase simplify() ─────────────────────────────────────
@@ -89,7 +89,7 @@ class OpenRouterClient:
             # "X-Title": "shopping_assistant_V6",
         }
 
-    def _post(self, messages: list[dict]) -> Optional[str]:
+    def _post(self, messages: list[dict]) -> str | None:
         """Does: POST a chat request and return the assistant content string.
         Args: messages: list of chat dicts [{role, content}, ...].
         Returns: Content string or None on error/empty.
@@ -150,7 +150,7 @@ def has_api_key() -> bool:
     return bool(os.getenv("OPENROUTER_API_KEY"))
 
 
-def get_llm_client(debug: bool = False) -> Optional[OpenRouterClient]:
+def get_llm_client(debug: bool = False) -> OpenRouterClient | None:
     """Does: Factory returning OpenRouterClient if API key is present.
     Args: debug: if True, logs presence status.
     Returns: OpenRouterClient or None.
@@ -217,10 +217,10 @@ def _backoff_sleep(attempt: int) -> None:
 def query_llm_for_rgb(
     color_phrase: str,
     llm_client=None,  # kept for API compatibility
-    cache: Optional[RGBCache] = None,
+    cache: RGBCache | None = None,
     retries: int = 2,
     debug: bool = False,
-) -> Optional[Tuple[int, int, int]]:
+) -> tuple[int, int, int] | None:
     """Does: Query OpenRouter for an RGB tuple, parse, retry, and cache result.
     Args: color_phrase: phrase; cache: RGBCache; retries: int; debug: bool.
     Returns: (R, G, B) on success or None on failure.
@@ -249,7 +249,9 @@ def query_llm_for_rgb(
             if debug:
                 logger.info("[LLM QUERY] Attempt %d: '%s'", attempt + 1, color_phrase)
 
-            response = _session.post(LLM_API_URL, headers=headers, json=payload, timeout=LLM_TIMEOUT)
+            response = _session.post(
+                LLM_API_URL, headers=headers, json=payload, timeout=LLM_TIMEOUT
+            )
 
             # Rate-limit handling
             if response.status_code == 429:

@@ -1,5 +1,5 @@
 """
-color
+color.
 =====
 
 Does: Aggregate core color-domain definitions (constants & vocabularies) shared
@@ -12,26 +12,26 @@ Returns: Pure data structures and accessor functions; no side effects beyond
 
 # ── Constants ────────────────────────────────────────────────────────────────
 from .constants import (
-    SEMANTIC_CONFLICTS,
     BLOCKED_TOKENS,
-    EXPRESSION_SUPPRESSION_RULES,
-    Y_SUFFIX_ALLOWLIST,
+    COSMETIC_NOUNS,
     ED_SUFFIX_ALLOWLIST,
+    EXPRESSION_SUPPRESSION_RULES,
     NON_SUFFIXABLE_MODIFIERS,
     RECOVER_BASE_OVERRIDES,
+    SEMANTIC_CONFLICTS,
+    Y_SUFFIX_ALLOWLIST,
     Y_SUFFIX_OVERRIDE_FORMS,
-    COSMETIC_NOUNS,
 )
 
 # ── Vocabulary ───────────────────────────────────────────────────────────────
 from .vocab import (
-    WEB_ONLY_COLOR_NAMES,
     COSMETIC_FALLBACK_TONES,
-    all_webcolor_names,        # CSS-only alias (backward compat)
-    known_tones,               # full tone set (CSS+XKCD+fallbacks)
-    get_xkcd_names,
-    get_web_named_color_names,
+    WEB_ONLY_COLOR_NAMES,
+    all_webcolor_names,  # CSS-only alias (backward compat)
     get_known_tones,
+    get_web_named_color_names,
+    get_xkcd_names,
+    known_tones,  # full tone set (CSS+XKCD+fallbacks)
 )
 
 __all__ = [

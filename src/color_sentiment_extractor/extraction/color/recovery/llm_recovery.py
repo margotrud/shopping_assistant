@@ -1,11 +1,12 @@
 # color/recovery/llm_recovery.py
 """
-llm_recovery
+llm_recovery.
 ============
 
 Does:
     LLM-aided simplification of color phrases/tokens with safety filters
     (cosmetic nouns, connectors, autonomous-tone ban) and base recovery.
+
 Returns:
     simplify_phrase_if_needed(...)->str|None, simplify_color_description_with_llm(...)->str,
     _attempt_simplify_token(...)->str|None, _extract_filtered_tokens(...)->set[str]
@@ -15,12 +16,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional, Set, Iterable, Protocol
+from collections.abc import Iterable
+from typing import Protocol
 
 from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
-from .modifier_resolution import resolve_modifier_token
-from color_sentiment_extractor.extraction.general.token import recover_base, normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token, recover_base
 from color_sentiment_extractor.extraction.general.types import TokenLike
+
+from .modifier_resolution import resolve_modifier_token
 
 # ── Public API ────────────────────────────────────────────────────────────────
 __all__ = [
@@ -35,16 +38,19 @@ from ..constants import AUTONOMOUS_TONE_BAN
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
+
 # ── Types ─────────────────────────────────────────────────────────────────────
 class LLMClient(Protocol):
     def simplify(self, phrase: str) -> str: ...
 
+
 # ── Constants / Regex ─────────────────────────────────────────────────────────
 _PAIR_RE = re.compile(r"^\s*([a-z\-]+)\s+([a-z][a-z\-\s]*)\s*$")
 
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _preserve_surface_mod_when_valid_pair(
-    text: str, known_modifiers: Set[str], known_tones: Set[str], debug: bool = False
+    text: str, known_modifiers: set[str], known_tones: set[str], debug: bool = False
 ) -> str:
     """
     Does: If text is 'left right' where right∈known_tones and left ends with -y/-ish
@@ -76,15 +82,16 @@ def _preserve_surface_mod_when_valid_pair(
 
     return text
 
+
 # ── Core ──────────────────────────────────────────────────────────────────────
 def _attempt_simplify_token(
     token: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    llm_client: Optional[LLMClient],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    llm_client: LLMClient | None,
     role: str = "modifier",
     debug: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Use LLM to simplify a noisy token into a known modifier/tone with guarded fallbacks.
     Returns: Normalized token or None.
@@ -164,22 +171,29 @@ def _attempt_simplify_token(
 
 def _extract_filtered_tokens(
     tokens: Iterable[TokenLike],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    llm_client: Optional[LLMClient],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    llm_client: LLMClient | None,
     debug: bool,
-) -> Set[str]:
+) -> set[str]:
     """
-    Does: Extract modifier/tone tokens from a token stream with rules, LLM fallback, and safety filters.
+    Does: Extract modifier/tone tokens from a token stream with rules, LLM fallback,
+     and safety filters.
     Returns: A set of resolved tokens.
     """
-    result: Set[str] = set()
+    result: set[str] = set()
 
     for tok in tokens:
         raw = normalize_token(tok.text, keep_hyphens=True)
 
         if debug and logger.isEnabledFor(logging.DEBUG):
-            logger.debug("[TOKEN] %r → %r (POS=%s) | cosmetic=%s", tok.text, raw, tok.pos_, raw in COSMETIC_NOUNS)
+            logger.debug(
+                "[TOKEN] %r → %r (POS=%s) | cosmetic=%s",
+                tok.text,
+                raw,
+                tok.pos_,
+                raw in COSMETIC_NOUNS,
+            )
 
         # Block cosmetic nouns
         if raw in COSMETIC_NOUNS:
@@ -218,7 +232,12 @@ def _extract_filtered_tokens(
             )
 
         # Safety filters
-        if len(raw) <= 3 and resolved != raw and resolved not in known_modifiers and resolved not in known_tones:
+        if (
+            len(raw) <= 3
+            and resolved != raw
+            and resolved not in known_modifiers
+            and resolved not in known_tones
+        ):
             if debug and logger.isEnabledFor(logging.DEBUG):
                 logger.debug("[REJECT] %r too short for safe fuzzy → %r", raw, resolved)
             continue
@@ -245,10 +264,12 @@ def _extract_filtered_tokens(
 
     return result
 
+
 # ── LLM wrappers ─────────────────────────────────────────────────────────────
 def build_prompt(phrase: str) -> str:
     """Deprecated: kept for compatibility; OpenRouterClient.simplify() builds its own prompt."""
     return f"What is the simplified base color or tone implied by: '{phrase}'?"
+
 
 def simplify_color_description_with_llm(
     phrase: str,
@@ -279,19 +300,21 @@ def simplify_color_description_with_llm(
         logger.debug("[LLM RESPONSE] %r → %r", phrase, simplified)
     return simplified
 
+
 def simplify_phrase_if_needed(
     phrase: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    llm_client: Optional[LLMClient],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    llm_client: LLMClient | None,
     cache=None,
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does:
         Simplify a descriptive phrase only if needed.
         - Preserve '-y/-ish' surface when there's already a valid (modifier, tone) pair.
         - If phrase is already a known tone, return as-is.
+
     Returns:
         Simplified or preserved phrase; None if no LLM client.
     """

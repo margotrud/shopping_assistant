@@ -1,6 +1,6 @@
 # extraction/general/token/__init__.py
 """
-token
+token.
 =====
 
 Does: Provide base token utilities for normalization, base recovery, and splitting.
@@ -11,23 +11,26 @@ Used by: General tokenization and color/expression extraction pipelines.
 
 from __future__ import annotations
 
-# Public, légers, stables
-from .normalize import (
-    normalize_token,
-    singularize,
-    get_tokens_and_counts,
-)
 from .base_recovery import (
     recover_base,
 )
+
+# Public, légers, stables
+from .normalize import (
+    get_tokens_and_counts,
+    normalize_token,
+    singularize,
+)
 from .split.split_core import (
-    recursive_token_split,
     fallback_split_on_longest_substring,
+    recursive_token_split,
 )
 
 # Optionnel: import interne pour tests/caching, non exporté
 try:
-    from .base_recovery import _recover_base_cached_with_params as _recover_base_cached_with_params  # noqa: F401
+    from .base_recovery import (
+        _recover_base_cached_with_params as _recover_base_cached_with_params,  # noqa: F401
+    )
 except Exception:  # pragma: no cover
     pass
 

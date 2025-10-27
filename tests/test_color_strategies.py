@@ -1,5 +1,6 @@
 # tests/test_color_strategies.py
 from __future__ import annotations
+
 import pytest
 import spacy
 
@@ -51,14 +52,16 @@ def patch_recovery_and_token_helpers(monkeypatch, known_sets):
     import color_sentiment_extractor.extraction.color.strategies.compound as compound
     import color_sentiment_extractor.extraction.color.strategies.standalone as standalone
 
-    def resolve_modifier_token(candidate, known_modifiers, known_tones=None, fuzzy=False, debug=False):
+
+    def resolve_modifier_token(
+            candidate,
+            known_modifiers,
+            known_tones=None,
+            fuzzy=False,
+            debug=False,
+    ):
         if candidate in known_modifiers:
             return candidate
-        if candidate.endswith("y") and candidate[:-1] in known_modifiers:
-            return candidate[:-1]
-        if candidate in known_modifiers:
-            return candidate
-        return None
 
     def is_known_tone(token, known_tones, all_webcolor_names):
         return token in known_tones or token in all_webcolor_names
@@ -72,7 +75,14 @@ def patch_recovery_and_token_helpers(monkeypatch, known_sets):
             return tok
         return None
 
-    def _attempt_simplify_token(candidate, known_modifiers, known_tones, llm_client, role="modifier", debug=False):
+    def _attempt_simplify_token(
+            candidate,
+            known_modifiers,
+            known_tones,
+            llm_client,
+            role="modifier",
+            debug=False,
+    ):
         return {"airy": "soft", "rosy": "rose", "pastelly": "pastel"}.get(candidate)
 
     def _extract_filtered_tokens(tokens, known_modifiers, known_tones, llm_client, debug=False):
@@ -128,16 +138,30 @@ def patch_recovery_and_token_helpers(monkeypatch, known_sets):
     monkeypatch.setattr(compound, "split_glued_tokens", split_glued_tokens, raising=True)
     monkeypatch.setattr(compound, "split_tokens_to_parts", split_tokens_to_parts, raising=True)
 
-    monkeypatch.setattr(standalone, "_extract_filtered_tokens", _extract_filtered_tokens, raising=True)
+    monkeypatch.setattr(
+        standalone,
+        "_extract_filtered_tokens",
+        _extract_filtered_tokens,
+        raising=True,
+    )
 
-    def _inject_expression_modifiers(tokens, known_modifiers, known_tones, expression_map, debug=False):
-        present = [t.text.lower() for t in tokens]
+    def _inject_expression_modifiers(
+            tokens,
+            known_modifiers,
+            known_tones,
+            expression_map,
+            debug=False,
+    ):
         out = []
-        for alias in present:
-            out.extend(expression_map.get(alias, []))
         return out
 
-    monkeypatch.setattr(standalone, "_inject_expression_modifiers", _inject_expression_modifiers, raising=True)
+    monkeypatch.setattr(
+        standalone,
+        "_inject_expression_modifiers",
+        _inject_expression_modifiers,
+        raising=True,
+    )
+
 
 # ── Tests: compound.py ────────────────────────────────────────────────────────
 def test_attempt_mod_tone_pair_direct_hit(monkeypatch, known_sets, llm_client):

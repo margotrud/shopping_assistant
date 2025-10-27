@@ -1,5 +1,5 @@
 """
-rgb_distance.py
+rgb_distance.py.
 ===============
 
 Does: Compute color distances (sRGB/Lab), pick representative RGBs, and
@@ -10,10 +10,14 @@ Returns: Distances (float), representative RGB (tuple[int,int,int]),
 """
 
 from __future__ import annotations
+
 import logging
 import re
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Dict, List, Optional, Tuple, Callable, Iterable
+
+from color_sentiment_extractor.extraction.color.vocab import get_all_webcolor_names
+from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 # Public surface
 __all__ = [
@@ -32,15 +36,11 @@ __docformat__ = "google"
 logger = logging.getLogger(__name__)
 
 # ── Types ─────────────────────────────────────────────────────────────────────
-RGB = Tuple[int, int, int]
-
-from color_sentiment_extractor.extraction.color.vocab import get_all_webcolor_names
-from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-
-
+RGB = tuple[int, int, int]
 # =============================================================================
 # 1) CORE DISTANCES
 # =============================================================================
+
 
 def _validate_rgb(rgb: RGB) -> None:
     r, g, b = rgb
@@ -50,8 +50,9 @@ def _validate_rgb(rgb: RGB) -> None:
 
 def rgb_distance(rgb1: RGB, rgb2: RGB) -> float:
     """Does: Compute Euclidean distance in sRGB space."""
-    _validate_rgb(rgb1); _validate_rgb(rgb2)
-    return sum((a - b) ** 2 for a, b in zip(rgb1, rgb2)) ** 0.5
+    _validate_rgb(rgb1)
+    _validate_rgb(rgb2)
+    return sum((a - b) ** 2 for a, b in zip(rgb1, rgb2, strict=False)) ** 0.5
 
 
 def _srgb_to_linear(v: float) -> float:
@@ -60,7 +61,7 @@ def _srgb_to_linear(v: float) -> float:
 
 
 @lru_cache(maxsize=4096)
-def _rgb_to_xyz(rgb: RGB) -> Tuple[float, float, float]:
+def _rgb_to_xyz(rgb: RGB) -> tuple[float, float, float]:
     r, g, b = (_srgb_to_linear(float(c)) for c in rgb)
     x = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b
     y = 0.2126729 * r + 0.7151522 * g + 0.0721750 * b
@@ -70,11 +71,11 @@ def _rgb_to_xyz(rgb: RGB) -> Tuple[float, float, float]:
 
 def _f_lab(t: float) -> float:
     d = 6 / 29
-    return t ** (1 / 3) if t > d ** 3 else (t / (3 * d * d) + 4 / 29)
+    return t ** (1 / 3) if t > d**3 else (t / (3 * d * d) + 4 / 29)
 
 
 @lru_cache(maxsize=4096)
-def _rgb_to_lab(rgb: RGB) -> Tuple[float, float, float]:
+def _rgb_to_lab(rgb: RGB) -> tuple[float, float, float]:
     Xn, Yn, Zn = 0.95047, 1.00000, 1.08883  # D65 white
     x, y, z = _rgb_to_xyz(rgb)
     fx, fy, fz = _f_lab(x / Xn), _f_lab(y / Yn), _f_lab(z / Zn)
@@ -86,7 +87,8 @@ def _rgb_to_lab(rgb: RGB) -> Tuple[float, float, float]:
 
 def lab_distance(rgb1: RGB, rgb2: RGB) -> float:
     """Does: Compute ΔE76 (Lab distance) between two RGB colors."""
-    _validate_rgb(rgb1); _validate_rgb(rgb2)
+    _validate_rgb(rgb1)
+    _validate_rgb(rgb2)
     L1, a1, b1 = _rgb_to_lab(rgb1)
     L2, a2, b2 = _rgb_to_lab(rgb2)
     return ((L1 - L2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2) ** 0.5
@@ -101,10 +103,10 @@ def is_within_rgb_margin(rgb1: RGB, rgb2: RGB, margin: float = 60.0) -> bool:
 # 2) CLUSTERING / REPRESENTATION
 # =============================================================================
 
+
 def choose_representative_rgb(
-    rgb_map: Dict[str, RGB],
-    metric: Callable[[RGB, RGB], float] = lab_distance
-) -> Optional[RGB]:
+    rgb_map: dict[str, RGB], metric: Callable[[RGB, RGB], float] = lab_distance
+) -> RGB | None:
     """Does: Pick the RGB most central among candidates by chosen metric."""
     if not rgb_map:
         return None
@@ -121,13 +123,14 @@ def choose_representative_rgb(
 # 3) NAMED COLOR MAPS (lazy import)
 # =============================================================================
 
+
 @lru_cache(maxsize=1)
-def _get_named_color_map() -> Dict[str, RGB]:
+def _get_named_color_map() -> dict[str, RGB]:
     """Does: Merge CSS4 and XKCD color dicts into {name: RGB} with lazy import."""
     from matplotlib.colors import CSS4_COLORS, XKCD_COLORS
     from webcolors import hex_to_rgb
 
-    named: Dict[str, RGB] = {}
+    named: dict[str, RGB] = {}
     # CSS4: keys have no spaces; normalize by stripping spaces/hyphens from our key,
     # but store a nice readable key with spaces for downstream fuzzy use.
     for css_name, hx in CSS4_COLORS.items():
@@ -144,21 +147,22 @@ def _get_named_color_map() -> Dict[str, RGB]:
 # 4) LOOKUPS & MATCHING
 # =============================================================================
 
+
 def find_similar_color_names(
     base_rgb: RGB,
-    known_rgb_map: Dict[str, RGB],
+    known_rgb_map: dict[str, RGB],
     threshold: float = 30.0,
-    metric: Callable[[RGB, RGB], float] = lab_distance
-) -> List[str]:
+    metric: Callable[[RGB, RGB], float] = lab_distance,
+) -> list[str]:
     """Does: Return names within threshold distance of base_rgb."""
     return sorted([n for n, rgb in known_rgb_map.items() if metric(rgb, base_rgb) <= threshold])
 
 
 def nearest_color_name(
     rgb: RGB,
-    known_rgb_map: Optional[Dict[str, RGB]] = None,
-    metric: Callable[[RGB, RGB], float] = lab_distance
-) -> Optional[str]:
+    known_rgb_map: dict[str, RGB] | None = None,
+    metric: Callable[[RGB, RGB], float] = lab_distance,
+) -> str | None:
     """Does: Find nearest color name in map by chosen metric."""
     known = known_rgb_map or _get_named_color_map()
     best_name, best_d = None, float("inf")
@@ -169,13 +173,10 @@ def nearest_color_name(
     return best_name
 
 
-def fuzzy_match_rgb_from_known_colors(
-    phrase: str,
-    n: int = 1,
-    cutoff: float = 0.75
-) -> Optional[str]:
+def fuzzy_match_rgb_from_known_colors(phrase: str, n: int = 1, cutoff: float = 0.75) -> str | None:
     """Does: Fuzzy match phrase to a known webcolor name."""
     import difflib
+
     q = normalize_token(phrase).replace("-", " ")
     names = get_all_webcolor_names()
     candidates = difflib.get_close_matches(q, names, n=n, cutoff=cutoff)
@@ -186,7 +187,8 @@ def fuzzy_match_rgb_from_known_colors(
 # 5) EXACT LOOKUP (CSS/XKCD)
 # =============================================================================
 
-def _try_simplified_match(name: str, debug: bool = False) -> Optional[RGB]:
+
+def _try_simplified_match(name: str, debug: bool = False) -> RGB | None:
     """Does: Try exact normalized name against CSS4/XKCD maps."""
     from matplotlib.colors import CSS4_COLORS, XKCD_COLORS
     from webcolors import hex_to_rgb
@@ -224,7 +226,8 @@ _RGB_PATTERNS = [
     r"\b(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\b",
 ]
 
-def _parse_rgb_tuple(response: str, debug: bool = False) -> Optional[RGB]:
+
+def _parse_rgb_tuple(response: str, debug: bool = False) -> RGB | None:
     """Does: Extract an RGB triple from text; validates 0–255 range."""
     for pat in _RGB_PATTERNS:
         m = re.search(pat, response)

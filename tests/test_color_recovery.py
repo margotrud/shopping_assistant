@@ -1,13 +1,13 @@
 # tests/test_recovery.py
 import pytest
 
-from color_sentiment_extractor.extraction.general.utils import load_config
-from color_sentiment_extractor.extraction.general.token import normalize_token
 from color_sentiment_extractor.extraction.color.recovery import (
     fuzzy_recovery,
     llm_recovery,
     modifier_resolution,
 )
+from color_sentiment_extractor.extraction.general.token import normalize_token
+from color_sentiment_extractor.extraction.general.utils import load_config
 
 # ---------------------------------------------------------------------
 # Fixtures
@@ -41,7 +41,12 @@ def describe_fuzzy_recovery():
         assert not fuzzy_recovery.is_suffix_root_match("", "", known_modifiers=km, known_tones=kt)
 
     def it_matches_suffix_and_root_variants(km, kt):
-        assert fuzzy_recovery.is_suffix_root_match("rosy", "rose", known_modifiers=km, known_tones=kt)
+        assert fuzzy_recovery.is_suffix_root_match(
+            "rosy",
+            "rose",
+            known_modifiers=km,
+            known_tones=kt,
+        )
 
     def it_respects_semantic_conflicts(km, kt):
         # On force une paire en conflit connu si présente

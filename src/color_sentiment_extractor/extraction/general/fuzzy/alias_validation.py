@@ -1,30 +1,31 @@
 # src/color_sentiment_extractor/extraction/color/fuzzy/alias_validation.py
-from __future__ import annotations
 
 """
-alias_validation.py
+alias_validation.py.
 
-Does: Validate single/multiword color aliases with fuzzy scores, suffix/base equivalence,
-      rhyme & semantic-conflict suppression, and overlap/subsumption heuristics.
+Does: Validate single/multiword color aliases with fuzzy scores,
+suffix/base equivalence, rhyme & semantic-conflict suppression,
+and overlap/subsumption heuristics.
+
 Returns: Boolean match decisions + utilities to filter overlapping hits.
 Used by: Color alias matching inside extraction pipelines.
 """
 
+from __future__ import annotations
+
 import logging
 import re
-from typing import List
 
 from rapidfuzz import fuzz  # performant, no numpy dependency
 
 from color_sentiment_extractor.extraction.color.constants import SEMANTIC_CONFLICTS
+from color_sentiment_extractor.extraction.color.recovery import is_suffix_root_match
 from color_sentiment_extractor.extraction.general.fuzzy import (
+    fuzzy_token_overlap_count,
     is_exact_match,
     rhyming_conflict,
-    fuzzy_token_overlap_count,
 )
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
-
-from color_sentiment_extractor.extraction.color.recovery import is_suffix_root_match
 
 __all__ = [
     "is_valid_singleword_alias",
@@ -39,9 +40,9 @@ __docformat__ = "google"
 log = logging.getLogger(__name__)
 
 # ── Tunables (centralisés) ───────────────────────────────────────────────────
-MIN_STRONG = 85       # seuil "fort" pour fuzz.ratio / partial_ratio
-MIN_MEDIUM = 82       # fallback medium si pas de conflit de rime
-SOFT_BAND_LOW = 75    # bande "soft" (fenêtre d'acceptation conditionnelle)
+MIN_STRONG = 85  # seuil "fort" pour fuzz.ratio / partial_ratio
+MIN_MEDIUM = 82  # fallback medium si pas de conflit de rime
+SOFT_BAND_LOW = 75  # bande "soft" (fenêtre d'acceptation conditionnelle)
 TOKEN_SET_LOOSE = 92  # seuil loose pour token_set sur phrases longues
 
 
@@ -49,7 +50,8 @@ TOKEN_SET_LOOSE = 92  # seuil loose pour token_set sur phrases longues
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _tokenize_lower(s: str) -> List[str]:
+
+def _tokenize_lower(s: str) -> list[str]:
     """Does: Normalize + split lowercase while conservant les tirets si utile plus tard."""
     if not s:
         return []
@@ -60,15 +62,18 @@ def _tokenize_lower(s: str) -> List[str]:
 # 1) Single-token alias checks
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def is_token_fuzzy_match(
     alias: str,
-    tokens: List[str],
+    tokens: list[str],
     input_text: str | None = None,
     debug: bool = True,
     min_score: int = MIN_STRONG,
 ) -> bool:
     """
-    Does: Check if alias matches any token via fuzzy or suffix/root equivalence with rhyme/semantic guards.
+    Does: Check if alias matches any token via fuzzy or suffix/root equivalence
+    with rhyme/semantic guards.
+
     Returns: True iff a safe match is found.
     """
     from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
@@ -89,7 +94,11 @@ def is_token_fuzzy_match(
     # Guard: alias or its base should appear in the input if provided
     if input_text:
         alias_base = recover_base(a, use_cache=True, debug=False) or a
-        if (a not in input_words) and (alias_base not in input_words) and (alias_base not in input_bases):
+        if (
+            (a not in input_words)
+            and (alias_base not in input_words)
+            and (alias_base not in input_bases)
+        ):
             if debug:
                 log.debug("[⛔] '%s' (base '%s') not in input tokens/bases → reject", a, alias_base)
             return False
@@ -180,7 +189,7 @@ def is_token_fuzzy_match(
 def is_valid_singleword_alias(
     alias: str,
     input_text: str,
-    tokens: List[str],
+    tokens: list[str],
     matched_aliases: set[str],
     debug: bool = False,
 ) -> bool:
@@ -207,6 +216,7 @@ def is_valid_singleword_alias(
 # 2) Multiword alias matching
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def is_multiword_alias_match(
     alias: str,
     input_text: str,
@@ -214,7 +224,9 @@ def is_multiword_alias_match(
     debug: bool = False,
 ) -> bool:
     """
-    Does: Match multiword alias via partial ratio, glue-equality, two-part reorder, or token-set overlap.
+    Does: Match multiword alias via partial ratio, glue-equality, two-part reorder,
+     or token-set overlap.
+
     Returns: True iff strong multiword correspondence is detected.
     """
     norm_alias = normalize_token(alias, keep_hyphens=True)
@@ -272,7 +284,10 @@ def should_accept_multiword_alias(
     strict: bool = True,
 ) -> bool:
     """
-    Does: Decide acceptance for multiword alias via exact/partial/reordered/part-wise + loose token-set fallback.
+    Does: Decide acceptance for multiword alias via exact/partial/reordered/part-wise
+     + loose token-set fallback.
+
+
     Returns: True for clear acceptance signals.
     """
     norm_alias = normalize_token(alias, keep_hyphens=True)
@@ -295,7 +310,11 @@ def should_accept_multiword_alias(
     input_parts = norm_input.split()
 
     # 3) Two-word reorder
-    if len(alias_parts) == 2 and len(input_parts) == 2 and sorted(alias_parts) == sorted(input_parts):
+    if (
+        len(alias_parts) == 2
+        and len(input_parts) == 2
+        and sorted(alias_parts) == sorted(input_parts)
+    ):
         return True
 
     # 4) Part-wise strict containment
@@ -341,7 +360,8 @@ def _handle_multiword_alias(alias: str, input_text: str, debug: bool = False) ->
 # 3) Match postprocessing
 # ─────────────────────────────────────────────────────────────────────────────
 
-def remove_subsumed_matches(matches: List[str]) -> List[str]:
+
+def remove_subsumed_matches(matches: list[str]) -> list[str]:
     """
     Does: Remove shorter matches contained within longer ones (word-boundary aware, hyphen-robust).
     Returns: List of non-subsumed matches.
@@ -350,20 +370,20 @@ def remove_subsumed_matches(matches: List[str]) -> List[str]:
         return []
 
     def _norm_for_sub(s: str) -> str:
-        # Normalise pour détection robuste: remplace hyphens/underscores par espaces, squeeze whitespace
+        # Normalise pour détection robuste : remplace hyphens/underscores par espaces,
+        # et squeeze les espaces multiples
         s = re.sub(r"[-_]+", " ", s.strip())
         s = re.sub(r"\s+", " ", s)
         return s
 
-    filtered: List[str] = []
+    filtered: list[str] = []
     for cand in sorted(matches, key=len, reverse=True):
         c = cand.strip()
         if not c:
             continue
         nc = _norm_for_sub(c)
         is_subsumed = any(
-            c != ex and re.search(rf"\b{re.escape(nc)}\b", _norm_for_sub(ex))
-            for ex in filtered
+            c != ex and re.search(rf"\b{re.escape(nc)}\b", _norm_for_sub(ex)) for ex in filtered
         )
         if not is_subsumed:
             filtered.append(c)

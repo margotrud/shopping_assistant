@@ -1,36 +1,39 @@
 # src/color_sentiment_extractor/extraction/color/fuzzy/expression_match.py
-from __future__ import annotations
 
 """
-expression_match.py
+expression_match.py.
 
-Does: Match input against expression aliases + modifiers with fuzzy fallbacks, de-duplication,
-      and embedded-alias conflict resolution (longest-wins).
-Returns: cached_match_expression_aliases(), match_expression_aliases() → set of canonical expressions.
+Does: Match input against expression aliases + modifiers with fuzzy fallbacks,
+      de-duplication, and embedded-alias conflict resolution (longest-wins).
+
+Returns: cached_match_expression_aliases(), match_expression_aliases() →
+set of canonical expressions.
+
 Used by: Expression→tone mapping stages in color extraction pipelines.
 """
+from __future__ import annotations
 
 import logging
 import re
 from functools import lru_cache
-from typing import Dict, List, Set, Tuple
 
 from rapidfuzz import fuzz  # performant, no numpy dependency
 
-from color_sentiment_extractor.extraction.general.utils import load_config
-from color_sentiment_extractor.extraction.general.token.normalize import (
-    normalize_token,
-    get_tokens_and_counts,
-)
 # Public alias validation helpers (monorepo coherence)
 from color_sentiment_extractor.extraction.general.fuzzy.alias_validation import (
     _handle_multiword_alias,
     is_valid_singleword_alias,
 )
+
 # Embedded-conflict rule (single-token morphological embedding)
 from color_sentiment_extractor.extraction.general.fuzzy.conflict_rules import (
     is_embedded_alias_conflict,
 )
+from color_sentiment_extractor.extraction.general.token.normalize import (
+    get_tokens_and_counts,
+    normalize_token,
+)
+from color_sentiment_extractor.extraction.general.utils import load_config
 
 __all__ = [
     "cached_match_expression_aliases",
@@ -44,15 +47,16 @@ log = logging.getLogger(__name__)
 
 # ── Tunables ─────────────────────────────────────────────────────────────────
 ALIAS_PARTIAL_MIN = 90  # fuzzy cut for modifiers/pass-2
-CACHE_SIZE = 1000       # LRU for cached matcher
+CACHE_SIZE = 1000  # LRU for cached matcher
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cached config
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @lru_cache(maxsize=1)
-def _get_expression_def() -> Dict[str, dict]:
+def _get_expression_def() -> dict[str, dict]:
     """Does: Load validated expression definitions (aliases, modifiers) from config."""
     return load_config("expression_definition", mode="validated_dict")
 
@@ -60,6 +64,7 @@ def _get_expression_def() -> Dict[str, dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Core alias acceptance
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _contains_as_words(haystack: str, needle: str) -> bool:
     """Does: Word-boundary search (space/hyphen aware) for `needle` inside `haystack`."""
@@ -73,13 +78,16 @@ def _contains_as_words(haystack: str, needle: str) -> bool:
 def should_accept_alias_match(
     alias: str,
     input_text: str,
-    tokens: List[str],
-    matched_aliases: Set[str] | None = None,
+    tokens: list[str],
+    matched_aliases: set[str] | None = None,
     debug: bool = False,
 ) -> bool:
     """
-    Does: Decide whether alias (single/multi-word) should be accepted against input (word-boundary aware).
-    Returns: True if accepted via exact/word-boundary or delegated matchers.
+    Does: Decide whether alias (single/multi-word) should be accepted against input
+    (word-boundary aware).
+
+    Returns:
+        True if accepted via exact/word-boundary or delegated matchers.
     """
     alias = (alias or "").strip().lower()
     matched_aliases = matched_aliases or set()
@@ -109,8 +117,9 @@ def should_accept_alias_match(
 # Main matcher
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @lru_cache(maxsize=CACHE_SIZE)
-def cached_match_expression_aliases(input_text: str) -> Set[str]:
+def cached_match_expression_aliases(input_text: str) -> set[str]:
     """Does: Cached matcher for default expression map from config."""
     expression_def = _get_expression_def()
     return match_expression_aliases(input_text, expression_def)
@@ -118,26 +127,31 @@ def cached_match_expression_aliases(input_text: str) -> Set[str]:
 
 def match_expression_aliases(
     input_text: str,
-    expression_map: Dict[str, dict],
+    expression_map: dict[str, dict],
     debug: bool = False,
-) -> Set[str]:
+) -> set[str]:
     """
-    Does: Match aliases first (longest aliases first), then modifiers (ranked), then resolve conflicts.
-    Returns: Set of canonical expressions.
+    Does: Match aliases first (longest aliases first), then modifiers (ranked),
+    then resolve conflicts.
+
+    Returns:
+        Set of canonical expressions.
     """
-    input_tokens: List[str] = list(get_tokens_and_counts(input_text).keys())
+    input_tokens: list[str] = list(get_tokens_and_counts(input_text).keys())
     input_tokens_lc = [t.lower() for t in input_tokens]
     input_lower = normalize_token(input_text, keep_hyphens=True)
 
-    matched_expressions: Set[str] = set()
-    matched_aliases: Set[str] = set()
-    expr_to_matched_alias: Dict[str, str] = {}
+    matched_expressions: set[str] = set()
+    matched_aliases: set[str] = set()
+    expr_to_matched_alias: dict[str, str] = {}
 
     # --- Pass 1: Alias matches (longest aliases first) ---
     for expr, props in expression_map.items():
         aliases = sorted(props.get("aliases", []), key=lambda a: (-len(a.split()), -len(a)))
         for alias in aliases:
-            if should_accept_alias_match(alias, input_text, input_tokens, matched_aliases, debug=debug):
+            if should_accept_alias_match(
+                alias, input_text, input_tokens, matched_aliases, debug=debug
+            ):
                 canonical = expr
                 matched_expressions.add(canonical)
                 a_norm = normalize_token(alias, keep_hyphens=True)
@@ -148,16 +162,17 @@ def match_expression_aliases(
                 break  # un alias suffit par expression
 
     # Tokens des alias acceptés (pour exclure ces mots côté modifiers)
-    alias_token_blocklist: Set[str] = {tok for a in matched_aliases for tok in a.split()}
+    alias_token_blocklist: set[str] = {tok for a in matched_aliases for tok in a.split()}
 
     # --- Pass 2: Modifiers (scoring) ---
-    mod_scores: Dict[str, int] = {}
+    mod_scores: dict[str, int] = {}
     for expr, props in expression_map.items():
         # si déjà matché via alias, pas besoin de passer par les modifiers
         if expr in matched_expressions:
             continue
 
-        # exclusivité stricte: si un alias a matché ailleurs, ne pas créer d'autres matches via modifiers
+        # exclusivité stricte : si un alias a matché ailleurs,
+        # ne pas créer d'autres matches via modifiers
         if expr not in matched_expressions and matched_expressions:
             continue
 
@@ -177,9 +192,8 @@ def match_expression_aliases(
                 continue
 
             # fuzzy sur phrase complète ou token-wise
-            if (
-                fuzz.ratio(input_lower, m) >= ALIAS_PARTIAL_MIN
-                or any(fuzz.ratio(tok, m) >= ALIAS_PARTIAL_MIN for tok in input_tokens_lc)
+            if fuzz.ratio(input_lower, m) >= ALIAS_PARTIAL_MIN or any(
+                fuzz.ratio(tok, m) >= ALIAS_PARTIAL_MIN for tok in input_tokens_lc
             ):
                 score += 1
 
@@ -195,9 +209,7 @@ def match_expression_aliases(
                     log.debug("[✅ MOD-SCORE] %r ← %s", expr, sc)
 
     # --- Pass 3: Embedded conflicts (use only actually matched aliases) ---
-    resolved = _resolve_embedded_conflicts(
-        matched_expressions, expr_to_matched_alias, debug=debug
-    )
+    resolved = _resolve_embedded_conflicts(matched_expressions, expr_to_matched_alias, debug=debug)
 
     return resolved
 
@@ -206,20 +218,24 @@ def match_expression_aliases(
 # Embedded alias cleanup (longest-wins)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _resolve_embedded_conflicts(
-    matched_expressions: Set[str],
-    expr_to_alias: Dict[str, str],
+    matched_expressions: set[str],
+    expr_to_alias: dict[str, str],
     debug: bool = False,
-) -> Set[str]:
+) -> set[str]:
     """
-    Does: Remove expressions whose matched alias is embedded inside another matched alias (single-token embedding).
-    Returns: Clean set with preference for longer aliases.
+    Does: Remove expressions whose matched alias is embedded inside another matched alias
+    (single-token embedding).
+
+    Returns:
+        Clean set with preference for longer aliases.
     """
     if len(matched_expressions) <= 1:
         return matched_expressions
 
-    keep: Set[str] = set(matched_expressions)  # start optimistic
-    items: List[Tuple[str, str]] = [
+    keep: set[str] = set(matched_expressions)  # start optimistic
+    items: list[tuple[str, str]] = [
         (expr, expr_to_alias.get(expr, "")) for expr in matched_expressions
     ]
 

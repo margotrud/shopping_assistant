@@ -1,6 +1,6 @@
 # extraction/general/token/suffix/__init__.py
 """
-suffix
+suffix.
 ======
 
 Does: Provide suffix vocabulary builders and recovery functions.
@@ -14,7 +14,6 @@ from .recovery import (
     build_augmented_suffix_vocab,
     is_suffix_variant,
 )
-
 from .registry import (
     SUFFIX_RECOVERY_FUNCS,
     # recover_with_registry,  # uncomment to expose dispatcher

@@ -1,5 +1,5 @@
 """
-rgb_pipeline.py
+rgb_pipeline.py.
 ===============
 
 Does: Resolve RGB from descriptive color phrases via rules, pre-normalization,
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional, Tuple, Set, Protocol, Any, Dict, Iterable, List, cast
+from typing import Any, Protocol, cast
 
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
 from color_sentiment_extractor.extraction.color.llm import (
@@ -26,12 +26,12 @@ from color_sentiment_extractor.extraction.color.recovery import (
 )
 from color_sentiment_extractor.extraction.color.suffix import build_y_variant
 from color_sentiment_extractor.extraction.color.utils import (
-    fuzzy_match_rgb_from_known_colors,
     _try_simplified_match,
+    fuzzy_match_rgb_from_known_colors,
 )
 from color_sentiment_extractor.extraction.general.token import (
-    recover_base,
     normalize_token,
+    recover_base,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,13 +41,15 @@ RGB = tuple[int, int, int]
 
 class LLMClient(Protocol):
     """Minimal surface for an LLM client usable here."""
-    def query(self, text: str) -> Optional[str]: ...
+
+    def query(self, text: str) -> str | None: ...
+
     # If your real client exposes extra methods (query_rgb, etc.) that's fine,
     # Protocol is structural so extra attrs won't break callers.
 
 
 # ── Internal typing helpers ──────────────────────────────────────────────
-def _coerce_rgb(val: object) -> Optional[RGB]:
+def _coerce_rgb(val: object) -> RGB | None:
     """
     Try to interpret arbitrary `val` as an RGB triple.
     Only accepts (r,g,b) where each is int.
@@ -65,7 +67,7 @@ def _coerce_rgb(val: object) -> Optional[RGB]:
     return None
 
 
-def _best_rgb_from_name_like(name: str) -> Optional[RGB]:
+def _best_rgb_from_name_like(name: str) -> RGB | None:
     """
     Wrapper around fuzzy_match_rgb_from_known_colors() which may return
     a non-RGB (e.g. str) depending on implementation.
@@ -75,7 +77,7 @@ def _best_rgb_from_name_like(name: str) -> Optional[RGB]:
     return _coerce_rgb(raw)
 
 
-def _as_any(client: Optional[LLMClient]) -> Any:
+def _as_any(client: LLMClient | None) -> Any:
     """
     simplify_color_description_with_llm() is typed to expect a different
     LLMClient class (from another module). At runtime our client is fine,
@@ -101,10 +103,8 @@ def _sanitize_simplified(s: str) -> str:
     return " ".join(parts) if parts else ""
 
 
-def _is_known_color_token(tok: str, known_modifiers: Set[str], known_tones: Set[str]) -> bool:
-    """
-    Returns True iff token is exactly a known modifier or tone.
-    """
+def _is_known_color_token(tok: str, known_modifiers: set[str], known_tones: set[str]) -> bool:
+    """Returns True iff token is exactly a known modifier or tone."""
     if not tok:
         return False
     t = tok.strip().lower()
@@ -113,8 +113,8 @@ def _is_known_color_token(tok: str, known_modifiers: Set[str], known_tones: Set[
 
 def _normalize_modifier_tone(
     phrase: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
     debug: bool = False,
 ) -> str:
     """
@@ -184,10 +184,10 @@ def _normalize_modifier_tone(
 # ── LLM-first RGB resolution (with fallbacks) ────────────────────────────
 def get_rgb_from_descriptive_color_llm_first(
     input_color: str,
-    llm_client: Optional[LLMClient],
-    cache: Optional[Dict[str, Any]] = None,
+    llm_client: LLMClient | None,
+    cache: dict[str, Any] | None = None,
     debug: bool = False,
-) -> Optional[RGB]:
+) -> RGB | None:
     """
     Resolve RGB from descriptive color using LLM; fallback to DB and fuzzy matches.
     Returns RGB or None.
@@ -226,12 +226,15 @@ def get_rgb_from_descriptive_color_llm_first(
         return coerced_llm
 
     # 2) LLM pour simplifier la phrase
-    simplified = simplify_color_description_with_llm(
-        input_color,
-        _as_any(llm_client),
-        cache=cache,
-        debug=debug,
-    ) or ""
+    simplified = (
+        simplify_color_description_with_llm(
+            input_color,
+            _as_any(llm_client),
+            cache=cache,
+            debug=debug,
+        )
+        or ""
+    )
     if debug and logger.isEnabledFor(logging.DEBUG):
         logger.debug("[SIMPLIFIED] → %r", simplified)
 
@@ -257,15 +260,15 @@ def get_rgb_from_descriptive_color_llm_first(
 
 def resolve_rgb_with_llm(
     phrase: str,
-    llm_client: Optional[LLMClient],
-    cache: Optional[Dict[str, Any]] = None,
+    llm_client: LLMClient | None,
+    cache: dict[str, Any] | None = None,
     debug: bool = False,
     prefer_db_first: bool = False,
-) -> Optional[RGB]:
+) -> RGB | None:
     """
-    Entry point for RGB resolution with strategy flag:
+    Entry point for RGB resolution with strategy flag.
     - DB-first (fast path / no LLM)
-    - or LLM-first (richer recovery)
+    - or LLM-first (richer recovery).
     """
     if prefer_db_first or not llm_client:
         rgb_fast = _try_simplified_match(phrase, debug=debug)
@@ -292,12 +295,12 @@ def resolve_rgb_with_llm(
 # ── Public API ──────────────────────────────────────────────────────────
 def process_color_phrase(
     phrase: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    llm_client: Optional[LLMClient] = None,
-    cache: Optional[Dict[str, Any]] = None,
+    known_modifiers: set[str],
+    known_tones: set[str],
+    llm_client: LLMClient | None = None,
+    cache: dict[str, Any] | None = None,
     debug: bool = False,
-) -> Tuple[str, Optional[RGB]]:
+) -> tuple[str, RGB | None]:
     """
     Simplify a color phrase to stable “modifier tone” and resolve RGB via
     DB/fuzzy/LLM.
@@ -312,9 +315,7 @@ def process_color_phrase(
     raw_norm = normalize_token(phrase)
 
     # Fast path: phrase est un seul token connu → pas d'LLM
-    if " " not in raw_norm and _is_known_color_token(
-        raw_norm, known_modifiers, known_tones
-    ):
+    if " " not in raw_norm and _is_known_color_token(raw_norm, known_modifiers, known_tones):
         simplified_lock = raw_norm
         if debug and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -336,14 +337,17 @@ def process_color_phrase(
         return simplified_lock, rgb_locked if isinstance(rgb_locked, tuple) else None
 
     # 1) Règles pures (pas d'LLM)
-    simplified = simplify_phrase_if_needed(
-        phrase,
-        known_modifiers,
-        known_tones,
-        llm_client=None,
-        cache=cache,
-        debug=debug,
-    ) or ""
+    simplified = (
+        simplify_phrase_if_needed(
+            phrase,
+            known_modifiers,
+            known_tones,
+            llm_client=None,
+            cache=cache,
+            debug=debug,
+        )
+        or ""
+    )
     if debug and logger.isEnabledFor(logging.DEBUG):
         logger.debug("[AFTER RULES] %r", simplified)
 
@@ -355,7 +359,7 @@ def process_color_phrase(
         debug=debug,
     )
     pre_parts = pre_norm.split()
-    pre_norm_locked = (len(pre_parts) == 2 and pre_parts[1] in known_tones)
+    pre_norm_locked = len(pre_parts) == 2 and pre_parts[1] in known_tones
 
     if pre_norm_locked:
         if debug and logger.isEnabledFor(logging.DEBUG):
@@ -372,21 +376,21 @@ def process_color_phrase(
         and (
             not simplified
             or simplified == phrase
-            or not (
-                len(simplified.split()) == 2
-                and simplified.split()[1] in known_tones
-            )
+            or not (len(simplified.split()) == 2 and simplified.split()[1] in known_tones)
         )
     )
     if need_llm:
         if debug and logger.isEnabledFor(logging.DEBUG):
             logger.debug("[LLM FALLBACK] Trying LLM for %r…", phrase)
-        llm_simpl = simplify_color_description_with_llm(
-            phrase,
-            _as_any(llm_client),
-            cache=cache,
-            debug=debug,
-        ) or ""
+        llm_simpl = (
+            simplify_color_description_with_llm(
+                phrase,
+                _as_any(llm_client),
+                cache=cache,
+                debug=debug,
+            )
+            or ""
+        )
         if llm_simpl:
             simplified = llm_simpl
             if debug and logger.isEnabledFor(logging.DEBUG):
@@ -396,9 +400,7 @@ def process_color_phrase(
     simplified = _sanitize_simplified(simplified)
     if debug and logger.isEnabledFor(logging.DEBUG):
         logger.debug("[SANITIZED] %r", simplified)
-    simplified = _normalize_modifier_tone(
-        simplified, known_modifiers, known_tones, debug=debug
-    )
+    simplified = _normalize_modifier_tone(simplified, known_modifiers, known_tones, debug=debug)
 
     # 3) Semantic conflict fix (si ex: {"warm","cool"} etc.)
     if simplified:

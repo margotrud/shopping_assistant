@@ -1,60 +1,59 @@
-# extraction/general/token/suffix/recovery.py
+"""
+recovery.py.
+
+Does: Provides all base recovery functions for -ed, -y, -ish, etc.
+Used by: suffix.registry and token_utils for normalization.
+"""
+
 from __future__ import annotations
 
-"""
-suffix.recovery
-
-Does: Recover base tokens from suffixed forms and build a suffix-augmented vocabulary
-      used by color/modifier extractors. Covers -y/-ey/-ed generation and a wide
-      set of recovery rules (-ing, -ish, -ness, -ly, -en, -ier, -ied, etc.).
-Returns: Vocab builder (build_augmented_suffix_vocab), variant predicate
-         (is_suffix_variant), and dedicated recover_* helpers.
-Used by: Suffix vocab builders, base-recovery flows, and compound/standalone extractors.
-"""
-
 from functools import lru_cache
-import logging
-from typing import Optional
 
-# ── Logging ──────────────────────────────────────────────────────────────────
-log = logging.getLogger(__name__)
-
-# ── Domain imports ───────────────────────────────────────────────────────────
-from color_sentiment_extractor.extraction.color.constants import (
-    RECOVER_BASE_OVERRIDES,
-    NON_SUFFIXABLE_MODIFIERS,
-    ED_SUFFIX_ALLOWLIST,
-    Y_SUFFIX_ALLOWLIST,  # used as an allowlist for certain -ey bases as well
-)
 from color_sentiment_extractor.extraction.color.suffix import (
-    build_y_variant,
     build_ey_variant,
+    build_y_variant,
     is_cvc_ending,
 )
+from color_sentiment_extractor.extraction.general.token.suffix.constants import (
+    Y_SUFFIX_ALLOWLIST,  # used as an allowlist for certain -ey bases as well
+)
+from color_sentiment_extractor.extraction.general.utils import log
 
 __all__ = [
-    # Builder / predicate
-    "build_augmented_suffix_vocab",
-    "is_suffix_variant",
-    # Recovery helpers
-    "recover_y",
     "recover_ed",
-    "recover_ing",
-    "recover_ied",
-    "recover_er",
-    "recover_ier",
-    "recover_ish",
-    "recover_ness",
-    "recover_ly",
-    "recover_en",
-    "recover_ey",
     "recover_ee_to_y",
+    "recover_en",
+    "recover_er",
+    "recover_ey",
+    "recover_ied",
+    "recover_ier",
+    "recover_ing",
+    "recover_ish",
+    "recover_ly",
+    "recover_ness",
+    "recover_y",
 ]
+
+
+# ─────────────────────────────────────────────
+# Internal helper to avoid circular imports
+# ─────────────────────────────────────────────
+def _get_overrides_and_guards():
+    """
+    Lazy-import override/config sets from modifier_resolution to avoid
+    circular import between recovery <-> modifier_resolution.
+    """
+    from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (  # type: ignore
+        ED_SUFFIX_ALLOWLIST,
+        NON_SUFFIXABLE_MODIFIERS,
+        RECOVER_BASE_OVERRIDES,
+    )
+    return RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST
+
 
 # ─────────────────────────────────────────────
 # 1) Augmented Suffix Vocabulary Builder
 # ─────────────────────────────────────────────
-
 def build_augmented_suffix_vocab(
     known_tokens: set[str],
     known_modifiers: set[str],
@@ -70,9 +69,18 @@ def build_augmented_suffix_vocab(
           - Avoids default -ed; restricts -ey to build_ey_variant + known allowlists.
     Returns: Set of valid base and suffixed tokens.
     """
-    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+    from color_sentiment_extractor.extraction.general.token.base_recovery import (
+        recover_base,
+    )
+
+    (
+        RECOVER_BASE_OVERRIDES,
+        NON_SUFFIXABLE_MODIFIERS,
+        ED_SUFFIX_ALLOWLIST,
+    ) = _get_overrides_and_guards()
 
     known_tones = known_tones or set()
+
     webcolor_names = webcolor_names or set()
 
     # seed includes tones to allow e.g., rose→rosy
@@ -203,7 +211,6 @@ def build_augmented_suffix_vocab(
 # ─────────────────────────────────────────────
 # 2) Variant Predicate
 # ─────────────────────────────────────────────
-
 @lru_cache(maxsize=4096)
 def is_suffix_variant(
     token: str,
@@ -218,6 +225,12 @@ def is_suffix_variant(
     Returns: True if recovered base is known and not blocked.
     """
     from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+
+    (
+        RECOVER_BASE_OVERRIDES,
+        NON_SUFFIXABLE_MODIFIERS,
+        _ED_SUFFIX_ALLOWLIST,
+    ) = _get_overrides_and_guards()
 
     if not token.endswith(("y", "ey", "ed")):
         if debug:
@@ -234,8 +247,8 @@ def is_suffix_variant(
         token,
         allow_fuzzy=allow_fuzzy,
         debug=debug,
-        known_modifiers=known_modifiers,  # kwargs legacy support
-        known_tones=known_tones,          # kwargs legacy support
+        known_modifiers=known_modifiers,
+        known_tones=known_tones,
     )
 
     is_known_base = base in known_modifiers or base in known_tones
@@ -246,7 +259,10 @@ def is_suffix_variant(
         log.debug(
             "%s | token: %r → base: %r | known_base: %s | blocked: %s",
             "VALID" if valid else "INVALID",
-            token, base, is_known_base, is_blocked,
+            token,
+            base,
+            is_known_base,
+            is_blocked,
         )
     return valid
 
@@ -254,13 +270,12 @@ def is_suffix_variant(
 # ─────────────────────────────────────────────
 # 3) Suffix Recovery Functions
 # ─────────────────────────────────────────────
-
 def recover_y(
     token: str,
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -y forms (creamy→cream/e, dusty→dust, shiny→shine).
           Tries base, base+e, double-consonant collapse, second y-strip.
@@ -275,6 +290,8 @@ def recover_y(
     if debug:
         log.debug("[recover_y] token=%r", token)
 
+    RECOVER_BASE_OVERRIDES, _, _ = _get_overrides_and_guards()
+
     # 1) Direct override
     if token in RECOVER_BASE_OVERRIDES:
         base = RECOVER_BASE_OVERRIDES[token]
@@ -285,7 +302,7 @@ def recover_y(
     base = token[:-1]
     candidates: list[str] = [base, base + "e"]
 
-    # Double consonant collapse (e.g., glossy/glossyy edge-cases)
+    # Double consonant collapse
     if len(base) >= 3 and base[-1] == base[-2]:
         collapsed = base[:-1]
         candidates.append(collapsed)
@@ -311,7 +328,7 @@ def recover_ed(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -ed forms (muted→mute, paled→pale, tapped→tap).
           Tries e-restore, CVC collapse, then raw base.
@@ -349,7 +366,7 @@ def recover_ing(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -ing forms (glowing→glow/e).
           Tries base+e then base.
@@ -380,7 +397,7 @@ def recover_ied(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover -ied → -y (tried→try).
           Checks the y-form in known sets.
@@ -409,7 +426,7 @@ def recover_er(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover comparative -er (darker→dark).
           Strips -er and checks base.
@@ -437,7 +454,7 @@ def recover_ier(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover comparative -ier (trendier→trendy / fancy→fancier).
           Tries stem, stem+y, and overrides on y-form.
@@ -457,6 +474,8 @@ def recover_ier(
         if debug:
             log.debug("[IER STRIP] %r → %r (direct match)", token, stem)
         return stem
+
+    RECOVER_BASE_OVERRIDES, _, _ = _get_overrides_and_guards()
 
     if stem and stem[-1] not in "aeiou":
         y_form = stem + "y"
@@ -482,7 +501,7 @@ def recover_ish(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -ish forms (greenish→green, ivorish→ivory/ivor+e).
           Tries direct base, collapse doubled consonant, +y/+e, then recover_base(base).
@@ -525,7 +544,10 @@ def recover_ish(
             log.debug("[ISH +E] %r → %r", token, extended_e)
         return extended_e
 
-    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base as _recover_base
+    from color_sentiment_extractor.extraction.general.token.base_recovery import (
+        recover_base as _recover_base,
+    )
+
     recovered = _recover_base(
         base,
         known_modifiers=known_modifiers,
@@ -552,7 +574,7 @@ def recover_ness(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -ness (softness→soft, creaminess→creamy→cream).
           Handles trailing i-drop toward base; checks base directly.
@@ -590,7 +612,7 @@ def recover_ly(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -ly adverbs (softly→soft, warmly→warm).
           Special-case “ally”→“ic”, else strip -ly. Filtered by known_*.
@@ -622,7 +644,7 @@ def recover_en(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -en adjectives (golden→gold).
           Strips -en and checks direct base.
@@ -653,7 +675,7 @@ def recover_ey(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover base from -ey forms (bronzey→bronze, beigey→beige).
           Prefers base+e; allowlist fallback for specific roots.
@@ -692,7 +714,7 @@ def recover_ee_to_y(
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Recover -ee→-y (ivoree→ivory).
           Builds candidate base with trailing y.
@@ -721,13 +743,12 @@ def recover_ee_to_y(
 # ─────────────────────────────────────────────
 # 4) Helpers
 # ─────────────────────────────────────────────
-
 def _collapse_double_consonant(
     base: str,
     known_modifiers: set[str],
     known_tones: set[str],
     debug: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Does: Collapse trailing doubled consonant if the single form is known (e.g., “redd”→“red”).
     Returns: Collapsed base if found, else None.

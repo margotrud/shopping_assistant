@@ -1,20 +1,20 @@
 # color_sentiment_extractor/extraction/general/types.py
 from __future__ import annotations
 
-"""
-types.py
-========
-
-Does: Define shared typing protocols for NLP tokens to avoid direct dependency on spaCy internals.
-Returns: TokenLike → minimal interface with `.text` and `.pos_` attributes.
-Used by: Recovery modules, suffix handling, and fuzzy matching utilities.
-"""
-
 from typing import Protocol
+
+"""
+types.py.
+
+Does: Define lightweight structural Protocols used for type hints
+across extractors and pipelines.
+"""
+
 
 class TokenLike(Protocol):
     text: str
     pos_: str
+
 
 __all__ = ["TokenLike"]
 

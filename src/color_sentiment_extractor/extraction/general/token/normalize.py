@@ -2,10 +2,8 @@
 # ──────────────────────────────────────────────────────────────
 # Shared utilities for token normalization and analysis
 # ──────────────────────────────────────────────────────────────
-from __future__ import annotations
-
 """
-normalize
+normalize.
 
 Does: Provide safe singularization and deterministic token normalization
       (lowercasing, spacing, optional hyphen preservation) with light
@@ -13,11 +11,11 @@ Does: Provide safe singularization and deterministic token normalization
 Returns: singularize(), normalize_token(), get_tokens_and_counts().
 Used by: Tokenization pipelines and color/modifier extraction stages.
 """
+from __future__ import annotations
 
 import re
 import unicodedata
 from collections import Counter
-from typing import Iterable
 
 from color_sentiment_extractor.extraction.general.vocab.cosmetic_nouns import COSMETIC_NOUNS
 
@@ -38,12 +36,13 @@ _ES_PLURAL_RE = re.compile(r"(ches|shes|xes|zes|sses|oes)$", re.IGNORECASE)
 
 # Common “fancy” Unicode punctuation we want to normalize early
 _FANCY_HYPHENS = {"\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"}  # ‐ - ‒ – — −
-_FANCY_QUOTES  = {"\u2018", "\u2019", "\u201B", "\u2032", "\u02BC"}           # ‘ ’ ‛ ′ ʼ
+_FANCY_QUOTES = {"\u2018", "\u2019", "\u201b", "\u2032", "\u02bc"}  # ‘ ’ ‛ ′ ʼ
 
 
 # ──────────────────────────────────────────────────────────────
 # 0) Light Unicode hygiene
 # ──────────────────────────────────────────────────────────────
+
 
 def _unicode_hygiene(s: str) -> str:
     """
@@ -66,6 +65,7 @@ def _unicode_hygiene(s: str) -> str:
 # ──────────────────────────────────────────────────────────────
 # 1) SINGULARIZATION (safe rules + backward-compat API)
 # ──────────────────────────────────────────────────────────────
+
 
 def _singularize_word(w: str) -> str:
     """
@@ -145,6 +145,7 @@ def _singularize_phrase_if_cosmetic_last(text: str, *, keep_hyphens: bool) -> st
 # 2) TOKEN NORMALIZATION
 # ──────────────────────────────────────────────────────────────
 
+
 def normalize_token(token: str, keep_hyphens: bool = False) -> str:
     """
     Does: Normalize `token`:
@@ -176,6 +177,7 @@ def normalize_token(token: str, keep_hyphens: bool = False) -> str:
 # ──────────────────────────────────────────────────────────────
 # 3) TOKEN ANALYSIS
 # ──────────────────────────────────────────────────────────────
+
 
 def get_tokens_and_counts(text: str, keep_hyphens: bool = False) -> dict[str, int]:
     """

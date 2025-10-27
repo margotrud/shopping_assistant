@@ -1,6 +1,6 @@
 # extraction/color/token/__init__.py
 """
-token package
+token package.
 =============
 
 Does: Regroupe les utilitaires de découpe de tokens couleur collés/hyphénés

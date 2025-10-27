@@ -1,9 +1,10 @@
 """
-categorizer.py
+categorizer.py.
 
 Does:
     Build strict modifier↔tone mappings from phrases (spaces/hyphens/glued),
     using strict base recovery for modifiers and filtering cosmetic nouns from tones.
+
 Returns:
     build_tone_modifier_mappings() → (tones, modifiers, mod_to_tone, tone_to_mod);
     format_tone_modifier_mappings() → {"modifiers": {...}, "tones": {...}}.
@@ -13,21 +14,23 @@ from __future__ import annotations
 
 # ── Imports & Public API ──────────────────────────────────────────────────────
 from collections import defaultdict
-from typing import Dict, Iterable, List, Set, Tuple
+from collections.abc import Iterable
+
+from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
 
 # Import via stable façades (keeps caller deps clean)
 from color_sentiment_extractor.extraction.general.token import (
-    recover_base,
     normalize_token,
+    recover_base,
 )
-from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
 
 __all__ = ["build_tone_modifier_mappings", "format_tone_modifier_mappings"]
 
 # ── Constants ────────────────────────────────────────────────────────────────
 # Common hyphen variants seen in heterogeneous sources
-UNICODE_HYPHENS: Tuple[str, ...] = ("-", "–", "—", "‒", "−")
+UNICODE_HYPHENS: tuple[str, ...] = ("-", "–", "—", "‒", "−")
 _HYPHEN_TRANS = str.maketrans({h: "-" for h in UNICODE_HYPHENS})
+
 
 # ── Helpers (private) ────────────────────────────────────────────────────────
 def _norm_token(t: str) -> str:
@@ -35,12 +38,12 @@ def _norm_token(t: str) -> str:
     return normalize_token(t or "", keep_hyphens=True)
 
 
-def _norm_set(values: Iterable[str]) -> Set[str]:
+def _norm_set(values: Iterable[str]) -> set[str]:
     """Normalize all items (lower/trim, hyphen-safe)."""
     return {_norm_token(v) for v in values if v}
 
 
-def _split_into_candidates(phrase: str) -> List[Tuple[str, str]]:
+def _split_into_candidates(phrase: str) -> list[tuple[str, str]]:
     """
     Produce (modifier, tone) bigram candidates from a phrase.
     Accepts spaces, hyphens (incl. Unicode), underscores, and glued forms.
@@ -67,13 +70,14 @@ def _split_into_candidates(phrase: str) -> List[Tuple[str, str]]:
 # ── Core API (public) ────────────────────────────────────────────────────────
 def build_tone_modifier_mappings(
     phrases: Iterable[str],
-    known_tones: Set[str],
-    known_modifiers: Set[str],
-) -> Tuple[Set[str], Set[str], Dict[str, Set[str]], Dict[str, Set[str]]]:
+    known_tones: set[str],
+    known_modifiers: set[str],
+) -> tuple[set[str], set[str], dict[str, set[str]], dict[str, set[str]]]:
     """
     Does:
         Derive bidirectional mappings (modifier↔tone) using strict base recovery
         for modifiers; excludes cosmetic nouns as tones.
+
     Returns:
         (tones, modifiers, mod_to_tone, tone_to_mod).
     """
@@ -81,17 +85,17 @@ def build_tone_modifier_mappings(
     known_modifiers = _norm_set(known_modifiers)
     cosmetic_nouns = _norm_set(COSMETIC_NOUNS)
 
-    tones: Set[str] = set()
-    modifiers: Set[str] = set()
-    mod_to_tone: Dict[str, Set[str]] = defaultdict(set)
-    tone_to_mod: Dict[str, Set[str]] = defaultdict(set)
+    tones: set[str] = set()
+    modifiers: set[str] = set()
+    mod_to_tone: dict[str, set[str]] = defaultdict(set)
+    tone_to_mod: dict[str, set[str]] = defaultdict(set)
 
     for phrase in phrases or []:
         candidates = _split_into_candidates(phrase)
         if not candidates:
             continue
 
-        best: Tuple[str, str] | None = None
+        best: tuple[str, str] | None = None
 
         for mod_raw, tone in candidates:
             # Fast tone screening
@@ -130,12 +134,13 @@ def build_tone_modifier_mappings(
 
 def format_tone_modifier_mappings(
     phrases: Iterable[str],
-    known_tones: Set[str],
-    known_modifiers: Set[str],
-) -> Dict[str, Dict[str, List[str]]]:
+    known_tones: set[str],
+    known_modifiers: set[str],
+) -> dict[str, dict[str, list[str]]]:
     """
     Does:
         Convert mappings to sorted, JSON-ready dicts with stable keys/values.
+
     Returns:
         {"modifiers": {mod: [tones...]}, "tones": {tone: [mods...]}}.
     """

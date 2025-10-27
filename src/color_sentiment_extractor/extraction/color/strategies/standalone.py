@@ -1,8 +1,7 @@
 # src/color_sentiment_extractor/extraction/color/strategies/standalone.py
-from __future__ import annotations
 
 """
-standalone.py
+standalone.py.
 
 Does: Extract standalone color terms (tones/modifiers) using strict token matching plus
       expression-based modifier injection, with rule/LLM filtering and final merge.
@@ -10,11 +9,21 @@ Returns: set[str] of normalized standalone terms; helpers for tone-only extracti
          safe injection/capping.
 Used by: Color phrase extraction pipelines; pre-compound enrichment and downstream RGB routing.
 """
+from __future__ import annotations
 
-from typing import Iterable, List, Set, Dict, Optional, cast
 import logging
+from collections.abc import Iterable
+from typing import cast
 
 from spacy.tokens import Token
+
+from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color.recovery import _extract_filtered_tokens
+from color_sentiment_extractor.extraction.general.expression.expression_helpers import (
+    _inject_expression_modifiers,
+)
+from color_sentiment_extractor.extraction.general.token import normalize_token
+from color_sentiment_extractor.extraction.general.types import TokenLike
 
 # Public surface
 __all__ = [
@@ -26,26 +35,17 @@ __docformat__ = "google"
 
 log = logging.getLogger(__name__)
 
-# ── Domain imports ───────────────────────────────────────────────────────────
-from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
-from color_sentiment_extractor.extraction.color.recovery import _extract_filtered_tokens
-from color_sentiment_extractor.extraction.general.expression.expression_helpers import (
-    _inject_expression_modifiers,
-)
-from color_sentiment_extractor.extraction.general.token import normalize_token
-from color_sentiment_extractor.extraction.general.types import TokenLike
-
 
 # ──────────────────────────────────────────────────────────────
 # 1) Tone-only extraction (strict, no LLM)
 # ──────────────────────────────────────────────────────────────
 def extract_lone_tones(
     tokens: Iterable[Token],
-    known_tones: Set[str],
+    known_tones: set[str],
     debug: bool = False,
-) -> Set[str]:
+) -> set[str]:
     """Extract strict standalone tones present in `known_tones`, skipping cosmetic nouns."""
-    matches: Set[str] = set()
+    matches: set[str] = set()
     for tok in tokens:
         raw = normalize_token(tok.text, keep_hyphens=True)
         if raw in COSMETIC_NOUNS:
@@ -64,12 +64,12 @@ def extract_lone_tones(
 # ──────────────────────────────────────────────────────────────
 def _gate_and_cap_injection(
     tokens: Iterable[Token],
-    expression_map: Dict[str, List[str]],
-    known_modifiers: Set[str],
-    injected: Optional[List[str]],
+    expression_map: dict[str, list[str]],
+    known_modifiers: set[str],
+    injected: list[str] | None,
     max_injected: int = 5,
     debug: bool = False,
-) -> List[str]:
+) -> list[str]:
     """
     Keep only modifiers that:
       • are triggered by an alias actually present in tokens,
@@ -77,11 +77,11 @@ def _gate_and_cap_injection(
       • are not already present in the input.
     Then cap to `max_injected` in order of first alias appearance.
     """
-    present: List[str] = [normalize_token(t.text, keep_hyphens=True) for t in tokens]
-    present_set: Set[str] = set(present)
+    present: list[str] = [normalize_token(t.text, keep_hyphens=True) for t in tokens]
+    present_set: set[str] = set(present)
 
-    allowed: List[str] = []
-    seen: Set[str] = set()
+    allowed: list[str] = []
+    seen: set[str] = set()
 
     # Iterate aliases in order of appearance; deterministic and stable
     for alias in present:
@@ -110,10 +110,10 @@ def _gate_and_cap_injection(
 # 3) Final combination helper
 # ──────────────────────────────────────────────────────────────
 def _finalize_standalone_phrases(
-    injected: Optional[Iterable[str]],
-    filtered: Optional[Iterable[str]],
+    injected: Iterable[str] | None,
+    filtered: Iterable[str] | None,
     debug: bool = False,
-) -> Set[str]:
+) -> set[str]:
     """Union of injected modifiers and filtered tokens, as a set."""
     injected_set = set(injected or [])
     filtered_set = set(filtered or [])
@@ -128,14 +128,14 @@ def _finalize_standalone_phrases(
 # ──────────────────────────────────────────────────────────────
 def extract_standalone_phrases(
     tokens: Iterable[Token],
-    known_modifiers: Set[str],
-    known_tones: Set[str],
-    expression_map: Dict[str, List[str]],
+    known_modifiers: set[str],
+    known_tones: set[str],
+    expression_map: dict[str, list[str]],
     llm_client,
     debug: bool = False,
     *,
     max_injected: int = 5,
-) -> Set[str]:
+) -> set[str]:
     """
     Extract standalone tones/modifiers by:
       1) Expression-based modifier injection (gated + capped),
@@ -143,7 +143,7 @@ def extract_standalone_phrases(
       3) Final union.
     """
     # always materialize iterable → avoids consuming generators
-    tokens_list: List[Token] = list(tokens)
+    tokens_list: list[Token] = list(tokens)
 
     if debug:
         log.debug("=" * 70)
@@ -159,13 +159,13 @@ def extract_standalone_phrases(
 
     # 1) Expression-based modifier injection (gated + capped)
     # _inject_expression_modifiers expects Dict[str, Dict[str, List[str]]] | None
-    typed_expression_map: Dict[str, Dict[str, List[str]]] | None = (
+    typed_expression_map: dict[str, dict[str, list[str]]] | None = (
         {alias: {"_": mods} for alias, mods in expression_map.items()}
         if expression_map is not None
         else None
     )
 
-    injected_raw: List[str] = _inject_expression_modifiers(
+    injected_raw: list[str] = _inject_expression_modifiers(
         tokens_list,
         known_modifiers,
         known_tones,
@@ -173,7 +173,7 @@ def extract_standalone_phrases(
         debug=debug,
     )
 
-    gated_injected: List[str] = _gate_and_cap_injection(
+    gated_injected: list[str] = _gate_and_cap_injection(
         tokens=tokens_list,
         expression_map=expression_map,
         known_modifiers=known_modifiers,
@@ -189,7 +189,7 @@ def extract_standalone_phrases(
         )
 
     # 2) Rule + LLM fallback filtering
-    filtered_terms: Set[str] = _extract_filtered_tokens(
+    filtered_terms: set[str] = _extract_filtered_tokens(
         cast(Iterable[TokenLike], tokens_list),
         known_modifiers,
         known_tones,
@@ -204,7 +204,7 @@ def extract_standalone_phrases(
         )
 
     # 3) Final combination + cleanup
-    final: Set[str] = _finalize_standalone_phrases(
+    final: set[str] = _finalize_standalone_phrases(
         gated_injected,
         filtered_terms,
         debug=debug,

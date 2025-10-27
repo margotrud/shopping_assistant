@@ -1,5 +1,5 @@
 """
-strategies
+strategies.
 ==========
 
 Color extraction strategies:
@@ -8,11 +8,11 @@ Color extraction strategies:
 """
 
 from .compound import (
+    attempt_mod_tone_pair,
     extract_compound_phrases,
     extract_from_adjacent,
     extract_from_glued,
     extract_from_split,
-    attempt_mod_tone_pair,
 )
 from .standalone import (
     extract_lone_tones,

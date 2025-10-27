@@ -1,8 +1,7 @@
 # color_sentiment_extractor/extraction/__init__.py
-from __future__ import annotations
 
 """
-extraction (compat shim)
+extraction (compat shim).
 ========================
 
 Does: Provide a compatibility alias so legacy imports like `from extraction.x import y`
@@ -10,6 +9,7 @@ Does: Provide a compatibility alias so legacy imports like `from extraction.x im
 Returns: Registers the current module under the top-level name "extraction" if absent.
 Used by: Older scripts, notebooks, and external integrations.
 """
+from __future__ import annotations
 
 import sys as _sys
 

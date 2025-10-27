@@ -1,5 +1,14 @@
 # tests/test_general_expression.py
 from __future__ import annotations
+
+import importlib
+import pathlib
+import re
+import sys
+import types
+
+import pytest
+
 """
 Does: End-to-end tests for expression_helpers: trigger vocab, alias extraction,
       expression matching (exact+fuzzy), context/suppression, modifier injection,
@@ -8,12 +17,7 @@ Returns: Deterministic unit tests using a tiny patched config + lightweight stub
 Used By: CI sanity on expression-driven tone/modifier logic.
 """
 
-import importlib
-import re
-import sys
-import types
-import pathlib
-import pytest
+
 
 
 @pytest.fixture(autouse=True)
@@ -70,11 +74,16 @@ def patch_project_dependencies(monkeypatch):
     utils_mod = importlib.import_module("color_sentiment_extractor.extraction.general.utils")
 
     def fake_load_config(name: str, mode: str = "validated_dict"):
-        if name == "known_modifiers" and mode == "set": return set(FAKE_KNOWN_MODIFIERS)
-        if name == "known_tones"     and mode == "set": return set(FAKE_KNOWN_TONES)
-        if name == "expression_definition" and mode == "validated_dict": return FAKE_EXPR_VALIDATED
-        if name == "expression_definition" and mode == "raw":            return FAKE_EXPR_RAW
-        if name == "expression_context_rules" and mode == "validated_dict": return FAKE_CONTEXT
+        if name == "known_modifiers" and mode == "set":
+            return set(FAKE_KNOWN_MODIFIERS)
+        if name == "known_tones"     and mode == "set":
+            return set(FAKE_KNOWN_TONES)
+        if name == "expression_definition" and mode == "validated_dict":
+            return FAKE_EXPR_VALIDATED
+        if name == "expression_definition" and mode == "raw":
+            return FAKE_EXPR_RAW
+        if name == "expression_context_rules" and mode == "validated_dict":
+            return FAKE_CONTEXT
         raise KeyError(f"Unexpected load_config({name=}, {mode=})")
 
     monkeypatch.setattr(utils_mod, "load_config", fake_load_config, raising=True)
@@ -102,7 +111,10 @@ def patch_project_dependencies(monkeypatch):
     monkeypatch.setattr(token_pkg, "recover_base",   recover_base,   raising=True)
 
     # fuzzy expression matcher
-    fuzzy_mod = importlib.import_module("color_sentiment_extractor.extraction.general.fuzzy.expression_match")
+    # fuzzy expression matcher
+    fuzzy_mod = importlib.import_module(
+        "color_sentiment_extractor.extraction.general.fuzzy.expression_match"
+    )
 
     def match_expression_aliases(text: str, expression_map):
         text_norm = normalize_token(text, keep_hyphens=True)
@@ -116,11 +128,21 @@ def patch_project_dependencies(monkeypatch):
                 hits.add(n)
         return hits
 
-    monkeypatch.setattr(fuzzy_mod, "match_expression_aliases", match_expression_aliases, raising=True)
+    monkeypatch.setattr(
+        fuzzy_mod,
+        "match_expression_aliases",
+        match_expression_aliases,
+        raising=True,
+    )
 
     # webcolor vocab
     vocab_mod = importlib.import_module("color_sentiment_extractor.extraction.color.vocab")
-    monkeypatch.setattr(vocab_mod, "get_all_webcolor_names", lambda: {"beige", "navy"}, raising=True)
+    monkeypatch.setattr(
+        vocab_mod,
+        "get_all_webcolor_names",
+        lambda: {"beige", "navy"},
+        raising=True,
+    )
 
     # ---- Purge target and PARENTS from sys.modules to avoid a non-package parent
     target  = "color_sentiment_extractor.extraction.general.expression.expression_helpers"
@@ -178,7 +200,7 @@ def test_map_expressions_with_context_and_suppression(patch_project_dependencies
 
 def test_inject_expression_modifiers_end_to_end(patch_project_dependencies):
     eh = patch_project_dependencies.mod
-    inject = getattr(eh, "_inject_expression_modifiers")
+    inject = eh._inject_expression_modifiers
     mods = inject(["Ultra", "Matte", "with", "high", "shine", "dusty"], debug=True)
     assert "dusty" in mods
     assert not ({"matte", "shiny"} <= set(mods))

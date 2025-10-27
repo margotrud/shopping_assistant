@@ -1,5 +1,12 @@
-# tests/test_general_token_suffix.py
 from __future__ import annotations
+
+import sys
+import types
+
+import pytest
+
+from color_sentiment_extractor.extraction.general.token.suffix import recovery as R
+from color_sentiment_extractor.extraction.general.token.suffix import registry as REG
 
 """
 Tests for extraction/general/token/suffix/{recovery,registry}.py
@@ -12,18 +19,9 @@ Does:
   - Smoke-test build_augmented_suffix_vocab() with a controlled vocab.
 """
 
-import sys
-import types
-import pytest
-
-# Modules under test
-from color_sentiment_extractor.extraction.general.token.suffix import recovery as R
-from color_sentiment_extractor.extraction.general.token.suffix import registry as REG
-
-
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────-
 # Fixtures: Known vocab & deterministic patches
-# ──────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────-
 
 @pytest.fixture
 def known_sets():

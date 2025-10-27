@@ -1,9 +1,9 @@
 # tests/test_color_llm.py
 import types
-import pytest
 
 # Public facade
 import color_sentiment_extractor.extraction.color.llm as llm
+
 # Impl module (pour patcher _session et autres détails internes)
 from color_sentiment_extractor.extraction.color.llm import llm_api_client as llm_impl
 

@@ -1,4 +1,12 @@
 # tests/test_color_utils.py
+
+
+from __future__ import annotations
+
+import importlib
+
+import pytest
+
 """
 rgb_distance tests
 ==================
@@ -6,10 +14,6 @@ rgb_distance tests
 Does: Validate sRGB/Lab distances, representative RGB selection, webcolor lookup/
       fuzzy name helpers, and robust RGB parsing with deterministic monkeypatches.
 """
-
-from __future__ import annotations
-import pytest
-import importlib
 
 # Importer explicitement l'objet module (évite les collisions de re-export)
 rd = importlib.import_module("color_sentiment_extractor.extraction.color.utils.rgb_distance")
@@ -20,9 +24,7 @@ rd = importlib.import_module("color_sentiment_extractor.extraction.color.utils.r
 # ──────────────────────────────────────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def patch_webcolor_names_and_normalizer(monkeypatch):
-    """
-    Does: Provide a tiny, stable webcolor vocabulary and a lightweight normalizer.
-    """
+    """Does: Provide a tiny, stable webcolor vocabulary and a lightweight normalizer."""
     vocab = ["red", "green", "acid green", "navy blue", "off white"]
 
     def _normalize_token(s: str, keep_hyphens: bool = False) -> str:
@@ -60,7 +62,8 @@ def test_lab_distance_basic_properties():
 
 
 def test_is_within_rgb_margin_true_false():
-    x = (10, 10, 10); y = (20, 20, 20)
+    x = (10, 10, 10)
+    y = (20, 20, 20)
     assert rd.is_within_rgb_margin(x, y, margin=20.0) is True
     assert rd.is_within_rgb_margin(x, y, margin=5.0) is False
 

@@ -1,5 +1,5 @@
 """
-general
+general.
 =======
 
 Shared general-purpose modules used across the extraction pipeline.

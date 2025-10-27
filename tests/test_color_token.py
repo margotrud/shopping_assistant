@@ -1,6 +1,6 @@
 # tests/test_color_token_split.py
 from __future__ import annotations
-import types
+
 import pytest
 
 # Module à tester
@@ -13,7 +13,8 @@ from color_sentiment_extractor.extraction.color.token import split as s
 @pytest.fixture(autouse=True)
 def patch_dependencies(monkeypatch):
     """
-    Does: Patch les dépendances externes (config, suffix, blocked pairs) pour des tests déterministes.
+    Does: Patch les dépendances externes (config, suffix, blocked pairs)
+          pour des tests déterministes.
     Returns: None (patches in place sur le module importé).
     """
     # known sets utilisés par plusieurs tests
@@ -129,7 +130,14 @@ def test_split_tokens_to_parts_recovery_left_and_right(km_kt, monkeypatch):
     monkeypatch.setattr(s, "_recover_base_cached_with_params", _fake_recover_left, raising=True)
 
     # Patch recover_base pour la partie droite: 'rosy' → 'rose'
-    def _fake_recover_right(token, known_modifiers, known_tones, debug=False, fuzzy_fallback=False, fuzzy_threshold=88):
+    def _fake_recover_right(
+            token,
+            known_modifiers,
+            known_tones,
+            debug=False,
+            fuzzy_fallback=False,
+            fuzzy_threshold=88,
+    ):
         return "rose" if token == "rosy" else None
 
     monkeypatch.setattr(s, "recover_base", _fake_recover_right, raising=True)
@@ -149,5 +157,11 @@ def test_split_tokens_to_parts_blocked_pair(km_kt, monkeypatch):
 def test_split_tokens_to_parts_min_length_guard(km_kt):
     """Does: Assure qu’aucun split n’est proposé si une partie serait trop courte."""
     # 'de' + 'rose' ne doit pas passer le min_part_len=3
-    parts = s.split_tokens_to_parts("derose", km_kt["tones"], km_kt["mods"], debug=True, min_part_len=3)
+    parts = s.split_tokens_to_parts(
+        "derose",
+        km_kt["tones"],
+        km_kt["mods"],
+        debug=True,
+        min_part_len=3,
+    )
     assert parts is None

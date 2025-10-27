@@ -1,7 +1,6 @@
 # tests/test_general_token_split_core.py
 from __future__ import annotations
-import time
-import types
+
 import pytest
 
 # Module under test
@@ -123,8 +122,13 @@ def test_split_longest_substring_fallback_when_partial_found(small_vocab):
         time_budget_sec=0.2,
     )
     # Should return sides + found substring in order under max_parts
-    assert out == ["xx", "navyblue", "yy"] or out == ["xxnavy", "blue", "yy"] or out == ["xx", "navy", "blueyy"]
-    # The function’s E-path returns one found substring occurrence; accept any consistent split variant.
+    assert (
+            out == ["xx", "navyblue", "yy"]
+            or out == ["xxnavy", "blue", "yy"]
+            or out == ["xx", "navy", "blueyy"]
+    )
+    # The function’s E-path returns one found substring occurrence;
+    # accept any consistent split variant.
 
 
 def test_trigram_guard_filters_hopeless_inputs(small_vocab):

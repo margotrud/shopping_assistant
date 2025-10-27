@@ -1,18 +1,22 @@
 # extraction/general/token/split/split_core.py
-from __future__ import annotations
 
 """
-split_core.py
+split_core.py.
 
-Does: Fast, budgeted splitting of glued tokens via 2-way greedy, greedy-prefix, and memoized backtracking, with trigram early-filter and cached vocab prep.
+Does: Fast, budgeted splitting of glued tokens via 2-way greedy,
+      greedy-prefix, and memoized backtracking, with trigram
+      early-filter and cached vocab prep.
 Returns: Lists of normalized parts (str) or []/None when no valid split.
 Used by: Tokenization/extraction stages that must deglue candidate tokens.
 """
+from __future__ import annotations
 
-from typing import Callable, Optional
-from functools import lru_cache
 import logging
 import time as _time
+from collections.abc import Callable
+from functools import lru_cache
+
+from color_sentiment_extractor.extraction.general.token import normalize_token  # ← move up here
 
 __all__ = [
     "has_token_overlap",
@@ -20,15 +24,13 @@ __all__ = [
     "recursive_token_split",
 ]
 
-# Import via package since token/__init__.py re-exports normalize_token
-from color_sentiment_extractor.extraction.general.token import normalize_token
-
 # ── Logging ──────────────────────────────────────────────────────────────────
 log = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Small helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def has_token_overlap(a: str, b: str) -> bool:
     """
@@ -44,7 +46,7 @@ def has_token_overlap(a: str, b: str) -> bool:
 def _strip_fancy_hyphens_apostrophes(s: str) -> str:
     # Normalize common Unicode punctuation variants
     hyphens = "\u2010\u2011\u2012\u2013\u2014\u2212"  # ‐ - ‒ – — −
-    quotes  = "\u2018\u2019\u201B\u2032\u02BC"       # ‘ ’ ‛ ′ ʼ
+    quotes = "\u2018\u2019\u201b\u2032\u02bc"  # ‘ ’ ‛ ′ ʼ
     for ch in hyphens + quotes:
         s = s.replace(ch, "-")
     return s
@@ -70,7 +72,7 @@ def _vocab_trigram_index(vset: set[str]) -> set[str]:
     for e in vset:
         n = len(e)
         if n >= 3:
-            idx.update(e[i:i+3] for i in range(n - 2))
+            idx.update(e[i : i + 3] for i in range(n - 2))
     return idx
 
 
@@ -84,7 +86,7 @@ def _has_vocab_trigram(raw: str, vocab_tris: set[str]) -> bool:
     if n < 3:
         return False
     for i in range(n - 2):
-        if raw[i:i+3] in vocab_tris:
+        if raw[i : i + 3] in vocab_tris:
             return True
     return False
 
@@ -92,6 +94,7 @@ def _has_vocab_trigram(raw: str, vocab_tris: set[str]) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # Cached vocab preparation
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @lru_cache(maxsize=128)
 def _prep_vocab_cached(fv: frozenset[str]) -> tuple[set[str], tuple[str, ...], set[str]]:
@@ -111,6 +114,7 @@ def _prep_vocab_cached(fv: frozenset[str]) -> tuple[set[str], tuple[str, ...], s
 # Main splitter (budgeted with safeguards)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def fallback_split_on_longest_substring(
     token: str,
     vocab: set[str],
@@ -122,8 +126,11 @@ def fallback_split_on_longest_substring(
     max_parts: int = 6,
 ) -> list[str]:
     """
-    Does: Deterministically segment `token` with vocab under a time budget, preferring real splits over glued; falls back to exact/substring.
-    Returns: Parts covering token (≥2) or exact/substring fallback; else [].
+    Does: Deterministically segment `token` with vocab under a time
+          budget, preferring real splits over glued; falls back to
+          exact/substring.
+    Returns: Parts covering token (≥2) or exact/substring fallback;
+             else [].
     Used by: Degluing before higher-level color/expression extraction.
     """
     t0 = _time.monotonic()
@@ -151,16 +158,17 @@ def fallback_split_on_longest_substring(
 
     # A) Two-way split pass (deterministic tie-breaks)
     if prefer_split_over_glued and not over_budget():
-        best_two: Optional[tuple[str, str]] = None
+        best_two: tuple[str, str] | None = None
         for i in range(min_part_len, len(raw) - min_part_len + 1):
             if over_budget():
                 break
             left, right = raw[:i], raw[i:]
             if left in norm_vocab and right in norm_vocab:
                 cand = (left, right)
-                if (
-                    best_two is None
-                    or (len(left), len(right), cand) > (len(best_two[0]), len(best_two[1]), best_two)
+                if best_two is None or (len(left), len(right), cand) > (
+                    len(best_two[0]),
+                    len(best_two[1]),
+                    best_two,
                 ):
                     best_two = cand
         if best_two and 2 <= max_parts:
@@ -182,7 +190,7 @@ def fallback_split_on_longest_substring(
             parts.append(chosen)
             if len(parts) > max_parts:
                 return []
-            rest = rest[len(chosen):]
+            rest = rest[len(chosen) :]
         return parts
 
     if not over_budget():
@@ -192,7 +200,7 @@ def fallback_split_on_longest_substring(
 
     # C) Backtracking (memoized), avoid swallowing whole at top level
     @lru_cache(maxsize=4096)
-    def backtrack(s: str, allow_whole: bool) -> Optional[tuple[str, ...]]:
+    def backtrack(s: str, allow_whole: bool) -> tuple[str, ...] | None:
         if over_budget():
             return None
         if not s:
@@ -205,7 +213,7 @@ def fallback_split_on_longest_substring(
             if len(w) == len(s) and not allow_whole:
                 continue
             if s.startswith(w):
-                rest = backtrack(s[len(w):], True)
+                rest = backtrack(s[len(w) :], True)
                 if rest is not None:
                     parts = (w,) + rest
                     if len(parts) <= max_parts:
@@ -249,18 +257,21 @@ def fallback_split_on_longest_substring(
 # Recursive splitter (binary + prefix/suffix fallbacks)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def recursive_token_split(token: str, is_valid: Callable[[str], bool]) -> Optional[list[str]]:
+
+def recursive_token_split(token: str, is_valid: Callable[[str], bool]) -> list[str] | None:
     """
-    Does: Recursively decompose a glued token using `is_valid` parts and binary splits with prefix/suffix fallbacks.
+    Does: Recursively decompose a glued token using `is_valid` parts
+          and binary splits with prefix/suffix fallbacks.
     Returns: List of parts or None when no valid decomposition exists.
-    Used by: Generic recovery when only a validator is available (no vocab).
+    Used by: Generic recovery when only a validator is available
+             (no vocab).
     """
     raw = _norm(token)
     if not raw:
         return None
 
     @lru_cache(maxsize=4096)
-    def _split(t: str) -> Optional[tuple[str, ...]]:
+    def _split(t: str) -> tuple[str, ...] | None:
         if not t:
             return None
         if is_valid(t):

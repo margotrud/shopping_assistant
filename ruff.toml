@@ -2,10 +2,14 @@ line-length = 100
 target-version = "py310"
 
 [lint]
-select = ["E","F","I","B","UP","D"]
+select = ["E", "F", "I", "B", "UP", "D"]
+
 ignore = [
-  "D100","D101","D102","D103","D104","D105","D107",  # docstrings (plus tard)
-  "D203","D213",  # pairs incompatibles: on garde D211 et D212
+    # --- docstrings we'll enforce later, not blocking CI ---
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107",
+    "D203", "D213",
+    "D205",  # 1 blank line required between summary line and description
+    "D212",  # multi-line docstring summary should start at the first line
+    "D401",  # first line should be in imperative mood
+    "D413",  # missing blank line after last section ("Returns")
 ]
-
-

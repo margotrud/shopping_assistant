@@ -1,24 +1,31 @@
 # src/color_sentiment_extractor/extraction/color/suffix/rules.py
-from __future__ import annotations
-
-from importlib import import_module
 
 """
-suffix.rules
+suffix.rules.
 ============
 
-Does: Utilities for suffix handling on color tokens: check '-y' eligibility, detect CVC endings,
+Does: Utilities for suffix handling on color tokens: check '-y' eligibility, 
+detect CVC endings,
       build '-y'/'-ey' variants (overrides/allowlists/rules), and apply reverse overrides.
 Used By: Suffix vocab builders, base-recovery flows, and compound/standalone extractors.
 Returns: Public helpers for suffix generation/recovery used across extraction pipelines.
 
 Notes importantes:
-- EY_SUFFIX_ALLOWLIST peut être absent de `constants`; on bascule alors sur un ensemble vide.
+- EY_SUFFIX_ALLOWLIST peut être absent de `constants`; on bascule alors sur un ensemble 
+vide.
 """
+from __future__ import annotations
 
-from functools import lru_cache
-from typing import Optional, Set, AbstractSet, FrozenSet, cast
 import logging
+from functools import lru_cache
+from importlib import import_module
+from typing import cast
+
+from color_sentiment_extractor.extraction.color.constants import (
+    RECOVER_BASE_OVERRIDES,
+    Y_SUFFIX_ALLOWLIST,
+    Y_SUFFIX_OVERRIDE_FORMS,
+)
 
 # ── Public surface ───────────────────────────────────────────────────────────
 __all__ = [
@@ -35,16 +42,10 @@ __docformat__ = "google"
 log = logging.getLogger(__name__)
 
 # ── Domain imports ───────────────────────────────────────────────────────────
-from color_sentiment_extractor.extraction.color.constants import (
-    Y_SUFFIX_ALLOWLIST,
-    Y_SUFFIX_OVERRIDE_FORMS,
-    RECOVER_BASE_OVERRIDES,
-)
-
 # EY_SUFFIX_ALLOWLIST est optionnel: on bind une seule fois le nom public.
 _constants = import_module("color_sentiment_extractor.extraction.color.constants")
-EY_SUFFIX_ALLOWLIST: FrozenSet[str] = cast(
-    FrozenSet[str],
+EY_SUFFIX_ALLOWLIST: frozenset[str] = cast(
+    frozenset[str],
     getattr(_constants, "EY_SUFFIX_ALLOWLIST", frozenset()),
 )
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,14 +54,32 @@ EY_SUFFIX_ALLOWLIST: FrozenSet[str] = cast(
 
 # Consonant endings that naturally accept a '-y' coloristic form.
 ALLOW_ENDS_FOR_Y = (
-    "sh", "ch", "ss", "m", "n", "r", "l",
-    "t", "d", "k", "p", "b", "f", "v",
-    "s", "z", "c", "g", "h", "j",
+    "sh",
+    "ch",
+    "ss",
+    "m",
+    "n",
+    "r",
+    "l",
+    "t",
+    "d",
+    "k",
+    "p",
+    "b",
+    "f",
+    "v",
+    "s",
+    "z",
+    "c",
+    "g",
+    "h",
+    "j",
 )
 
 # =============================================================================
 # Core rules
 # =============================================================================
+
 
 def is_y_suffix_allowed(base: str) -> bool:
     """Does: Return True if base can accept '-y' via allowlist + heuristic rules. Returns: bool."""
@@ -83,7 +102,7 @@ def is_cvc_ending(base: str) -> bool:
     return True
 
 
-def build_y_variant(base: str, debug: bool = False) -> Optional[str]:
+def build_y_variant(base: str, debug: bool = False) -> str | None:
     """Does: Build a '-y' variant using overrides, allowlist, then rules. Returns: token or None."""
     if base in Y_SUFFIX_OVERRIDE_FORMS:
         if debug:
@@ -98,8 +117,11 @@ def build_y_variant(base: str, debug: bool = False) -> Optional[str]:
     return None
 
 
-def build_ey_variant(base: str, raw: str, debug: bool = False) -> Optional[str]:
-    """Does: Build an '-ey' variant via dedicated allowlist or strict sibilant rule. Returns: token/None."""
+def build_ey_variant(base: str, raw: str, debug: bool = False) -> str | None:
+    """Does: Build an '-ey' variant via dedicated allowlist or strict sibilant rule.
+    Returns: token/None.
+    """
+
     def _ey(stem: str) -> str:
         return (stem[:-1] if stem.endswith("e") else stem) + "ey"
 
@@ -122,9 +144,11 @@ def build_ey_variant(base: str, raw: str, debug: bool = False) -> Optional[str]:
         log.debug("[deny -ey] %s (raw=%s)", base, raw)
     return None
 
+
 # =============================================================================
 # Overrides (reverse) and minor normalizations
 # =============================================================================
+
 
 @lru_cache(maxsize=1)
 def _stripped_override_map() -> dict[str, str]:
@@ -137,7 +161,9 @@ def _stripped_override_map() -> dict[str, str]:
 
 
 def _apply_reverse_override(base: str, token: str, debug: bool = False) -> str:
-    """Does: Use stripped token to look up an override base, falling back to provided base. Returns: str."""
+    """Does: Use stripped token to look up an override base, falling back to provided base.
+    Returns: str.
+    """
     m = _stripped_override_map()
     key = token[:-1] if token.endswith("y") else token[:-2] if token.endswith("ed") else token
     out = m.get(key, base)
@@ -146,14 +172,15 @@ def _apply_reverse_override(base: str, token: str, debug: bool = False) -> str:
     return out
 
 
-
 def _collapse_repeated_consonant(
     base: str,
-    known_modifiers: AbstractSet[str],
-    known_tones: AbstractSet[str],
+    known_modifiers: set[str],
+    known_tones: set[str],
     debug: bool = False,
 ) -> str:
-    """Does: Collapse doubled final consonant if collapsed form exists in known sets. Returns: str."""
+    """Does: Collapse doubled final consonant if collapsed form exists in known sets.
+    Returns: str.
+    """
     if len(base) >= 3 and base[-1] == base[-2]:
         collapsed = base[:-1]
         if collapsed in known_modifiers or collapsed in known_tones:
