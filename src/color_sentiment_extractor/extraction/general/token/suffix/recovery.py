@@ -17,7 +17,9 @@ from color_sentiment_extractor.extraction.color.suffix import (
 from color_sentiment_extractor.extraction.general.token.suffix.constants import (
     Y_SUFFIX_ALLOWLIST,  # used as an allowlist for certain -ey bases as well
 )
-from color_sentiment_extractor.extraction.general.utils import log
+import logging
+
+log: logging.Logger = logging.getLogger(__name__)
 
 __all__ = [
     "recover_ed",
@@ -43,7 +45,7 @@ def _get_overrides_and_guards():
     Lazy-import override/config sets from modifier_resolution to avoid
     circular import between recovery <-> modifier_resolution.
     """
-    from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (  # type: ignore
+    from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
         ED_SUFFIX_ALLOWLIST,
         NON_SUFFIXABLE_MODIFIERS,
         RECOVER_BASE_OVERRIDES,

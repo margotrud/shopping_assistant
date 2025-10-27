@@ -21,6 +21,7 @@ from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
 from color_sentiment_extractor.extraction.general.fuzzy import rhyming_conflict
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 from color_sentiment_extractor.extraction.general.utils import load_config
+from typing import FrozenSet
 
 # ── Public API ───────────────────────────────────────────────────────────────
 __all__ = ["is_suffix_root_match"]
@@ -82,8 +83,8 @@ def is_suffix_root_match(
     if not alias or not token:
         return False
 
-    km: set[str] = known_modifiers or _get_known_modifiers()
-    kt: set[str] = known_tones or _get_known_tones()
+    km: set[str] = set(known_modifiers or _get_known_modifiers())
+    kt: set[str] = set(known_tones or _get_known_tones())
 
     a_norm = normalize_token(alias, keep_hyphens=True)
     t_norm = normalize_token(token, keep_hyphens=True)
