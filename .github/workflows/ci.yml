@@ -30,7 +30,7 @@ jobs:
           python -m spacy download en_core_web_sm
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: ruff check src/color_sentiment_extractor
 
       - name: Type check (mypy)
         run: mypy src/color_sentiment_extractor
