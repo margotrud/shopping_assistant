@@ -4,13 +4,14 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
+    branches: [ "main" ]
 
 jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11"]  # élargir à 3.10 ensuite
+        python-version: ["3.10", "3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -24,10 +25,8 @@ jobs:
       - name: Install project and dev tools
         run: |
           python -m pip install -U pip
-          # Installe TON package (editable) + outils
           pip install -e .
           pip install pytest pytest-cov ruff mypy
-          # spaCy model (si nécessaire à tes tests)
           python -m spacy download en_core_web_sm
 
       - name: Lint (ruff)
@@ -45,8 +44,5 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          files: ./coverage.xml
+          file: ./coverage.xml
           fail_ci_if_error: true
-        env:
-          # Laisse vide si repo public ; ajoute le secret si repo privé
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
