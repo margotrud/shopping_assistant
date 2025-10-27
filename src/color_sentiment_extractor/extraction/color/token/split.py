@@ -16,7 +16,7 @@ import logging
 import re
 import time as _time
 from functools import lru_cache
-from typing import FrozenSet, List, Optional, Set
+from typing import FrozenSet, Iterable, List, Optional, Set
 
 # Imports internes projet
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS
@@ -37,7 +37,6 @@ from color_sentiment_extractor.extraction.general.utils import load_config
 # ── Logger ───────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
-
 # ── Constantes locales ───────────────────────────────────────────────────
 MIN_PART_LEN_DEFAULT = 3
 TIME_BUDGET_DEFAULT = 0.050  # ~50ms par token
@@ -48,14 +47,43 @@ MAX_FIRST_CUT_DEFAULT = 10
 @lru_cache(maxsize=1)
 def _get_known_modifiers() -> FrozenSet[str]:
     """Does: Charge les known_modifiers (config) une seule fois (cache). Returns: frozenset."""
-    return frozenset(load_config("known_modifiers", mode="set"))
+    # load_config(mode="set") renvoie déjà un frozenset[str] dans notre codebase
+    return load_config("known_modifiers", mode="set")
+
+
+# ── helpers internes typing-friendly ─────────────────────────────────────
+def _ensure_modifiers(
+    known_modifiers: FrozenSet[str] | None,
+) -> FrozenSet[str]:
+    """Retourne toujours un FrozenSet[str] non vide (éventuellement vide mais jamais None)."""
+    return known_modifiers if known_modifiers is not None else _get_known_modifiers()
+
+
+def _ensure_vocab(
+    known_tokens: Set[str],
+    km: FrozenSet[str],
+    vocab: Optional[Set[str]],
+) -> Set[str]:
+    """Construit/retourne le vocab suffix-aware attendu par le splitter."""
+    if vocab is not None:
+        return vocab
+    # build_augmented_suffix_vocab() attend des sets mutables -> on cast via set()
+    return build_augmented_suffix_vocab(known_tokens, set(km))
+
+
+def _any_in(haystack: Iterable[str], km: FrozenSet[str], kt: Set[str]) -> bool:
+    """mypy-safe: vérifie si un morceau appartient aux sets connus."""
+    for t in haystack:
+        if t in km or t in kt:
+            return True
+    return False
 
 
 # ── Splitter récursif (glued + suffix-aware) ─────────────────────────────
 def split_glued_tokens(
     token: str,
     known_tokens: Set[str],
-    known_modifiers: Optional[Set[str]] = None,
+    known_modifiers: FrozenSet[str] | None = None,
     debug: bool = False,
     vocab: Optional[Set[str]] = None,
     *,
@@ -68,8 +96,9 @@ def split_glued_tokens(
     Returns: Liste de morceaux valides (≥1) ou [] si aucun découpage sûr.
     """
     t0 = _time.time()
-    if known_modifiers is None:
-        known_modifiers = _get_known_modifiers()
+
+    km: FrozenSet[str] = _ensure_modifiers(known_modifiers)
+    kt: Set[str] = known_tokens
 
     if not token or not isinstance(token, str):
         return []
@@ -85,19 +114,18 @@ def split_glued_tokens(
         return []
     token = tok_norm
 
-    # Vocab étendu (tones + modifers + variantes suffixées)
-    if vocab is None:
-        vocab = build_augmented_suffix_vocab(known_tokens, known_modifiers)
+    # Vocab étendu (tones + modifiers + variantes suffixées)
+    vocab_local: Set[str] = _ensure_vocab(kt, km, vocab)
 
     @lru_cache(maxsize=2048)
     def is_valid_cached(t: str) -> bool:
-        t = normalize_token(t, keep_hyphens=False)
+        t_norm = normalize_token(t, keep_hyphens=False)
         return (
-            t in vocab
+            t_norm in vocab_local
             or is_suffix_variant(
-                t,
-                frozenset(known_modifiers),
-                frozenset(known_tokens),
+                t_norm,
+                km,
+                frozenset(kt),
                 debug=False,
                 allow_fuzzy=False,
             )
@@ -149,9 +177,10 @@ def split_glued_tokens(
         return parts
 
     # Fallback: longest-substring
-    result = fallback_split_on_longest_substring(token, vocab, debug=False) or []
+    result = fallback_split_on_longest_substring(token, vocab_local, debug=False) or []
+
     # Valide seulement si au moins un morceau ∈ vocabs de base
-    if any(t in known_modifiers or t in known_tokens for t in result):
+    if _any_in(result, km, kt):
         if debug:
             dt = _time.time() - t0
             logger.debug("[split] fallback OK %s in %.3fs for %r", result, dt, token)
@@ -168,7 +197,7 @@ def split_glued_tokens(
 def split_tokens_to_parts(
     token: str,
     known_tokens: Set[str],
-    known_modifiers: Optional[Set[str]] = None,
+    known_modifiers: FrozenSet[str] | None = None,
     debug: bool = False,
     *,
     min_part_len: int = MIN_PART_LEN_DEFAULT,
@@ -179,8 +208,9 @@ def split_tokens_to_parts(
     Returns: [left, right] si confiant, sinon None.
     """
     t0 = _time.time()
-    if known_modifiers is None:
-        known_modifiers = _get_known_modifiers()
+
+    km: FrozenSet[str] = _ensure_modifiers(known_modifiers)
+    kt: Set[str] = known_tokens
 
     if not token or len(token) <= 2:
         if debug:
@@ -194,7 +224,7 @@ def split_tokens_to_parts(
         return None
 
     # évite de retravailler un token déjà connu comme tone
-    if token in known_tokens:
+    if token in kt:
         if debug:
             logger.debug("[split2] token already known: %r", token)
         return None
@@ -209,8 +239,8 @@ def split_tokens_to_parts(
             for k in range(1, len(hyph_parts)):
                 left = "-".join(hyph_parts[:k])
                 right = "-".join(hyph_parts[k:])
-                l_ok = left in known_tokens or left in known_modifiers
-                r_ok = right in known_tokens or right in known_modifiers
+                l_ok = (left in kt) or (left in km)
+                r_ok = (right in kt) or (right in km)
                 if l_ok and r_ok:
                     if debug:
                         logger.debug("[HYPHEN SPLIT MATCH] %r + %r", left, right)
@@ -240,7 +270,7 @@ def split_tokens_to_parts(
         right_final: Optional[str] = None
 
         # ── LEFT ──
-        if left in known_tokens or left in known_modifiers:
+        if (left in kt) or (left in km):
             left_final = left
             score += 3
             if debug:
@@ -250,8 +280,8 @@ def split_tokens_to_parts(
                 raw=left,
                 allow_fuzzy=False,
                 fuzzy_threshold=88,
-                km=frozenset(known_modifiers),
-                kt=frozenset(known_tokens),
+                km=km,
+                kt=frozenset(kt),
             )
             # nettoyage chiffres puis retry strict
             if not left_rec and any(ch.isdigit() for ch in left):
@@ -261,26 +291,26 @@ def split_tokens_to_parts(
                         raw=cleaned,
                         allow_fuzzy=False,
                         fuzzy_threshold=88,
-                        km=frozenset(known_modifiers),
-                        kt=frozenset(known_tokens),
+                        km=km,
+                        kt=frozenset(kt),
                     )
                     if debug:
                         logger.debug("[CLEANED LEFT] %r → %r → %r", left, cleaned, left_rec)
 
             # garde qualité sur segments très courts
-            if left_rec and len(left) < 4 and left_rec != left and left_rec not in known_tokens:
+            if left_rec and len(left) < 4 and left_rec != left and left_rec not in kt:
                 if debug:
                     logger.debug("[REJECT LEFT WEAK] %r → %r", left, left_rec)
                 left_rec = None
 
             if left_rec:
-                left_final = left if left in known_tokens else left_rec
+                left_final = left if left in kt else left_rec
                 score += 3 if left_final == left else 1
                 if debug:
                     logger.debug("[LEFT RECOVERED] %r → %r", left, left_final)
 
         # ── RIGHT ──
-        if right in known_tokens or right in known_modifiers:
+        if (right in kt) or (right in km):
             right_final = right
             score += 3
             if debug:
@@ -288,8 +318,8 @@ def split_tokens_to_parts(
         else:
             right_rec = recover_base(
                 right,
-                known_modifiers=known_modifiers,
-                known_tones=known_tokens,
+                known_modifiers=km,
+                known_tones=kt,
                 debug=False,
                 fuzzy_fallback=False,  # strict
                 fuzzy_threshold=88,
@@ -299,8 +329,8 @@ def split_tokens_to_parts(
                 if cleaned and cleaned != right:
                     right_rec = recover_base(
                         cleaned,
-                        known_modifiers=known_modifiers,
-                        known_tones=known_tokens,
+                        known_modifiers=km,
+                        known_tones=kt,
                         debug=False,
                         fuzzy_fallback=False,
                         fuzzy_threshold=88,
@@ -315,7 +345,7 @@ def split_tokens_to_parts(
                 right_rec = None
 
             if right_rec:
-                right_final = right if right in known_tokens else right_rec
+                right_final = right if right in kt else right_rec
                 score += 3 if right_final == right else 1
                 if debug:
                     logger.debug("[RIGHT RECOVERED] %r → %r", right, right_final)
@@ -354,6 +384,6 @@ if __name__ == "__main__":
     logger.info("Demo split module: %s", __file__)
     # Mini démo (remplacez par vos sets réels)
     tones = {"rose", "beige", "blue", "navy"}
-    mods = {"dusty", "soft", "deep"}
+    mods = frozenset({"dusty", "soft", "deep"})
     print("glued:", split_glued_tokens("dustyrose", tones, mods, debug=True))
     print("2-part:", split_tokens_to_parts("dustyrose", tones, mods, debug=True))

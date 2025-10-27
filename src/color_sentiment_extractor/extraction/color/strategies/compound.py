@@ -1,4 +1,3 @@
-# src/color_sentiment_extractor/extraction/color/strategies/compound.py
 from __future__ import annotations
 
 """
@@ -11,12 +10,10 @@ Used by: Color phrase extraction pipelines; RGB pipelines downstream.
 
 from functools import lru_cache
 from typing import Dict, Iterable, List, Optional, Set, Tuple
-
 import logging
 import spacy
 from spacy.tokens import Doc, Token
 
-# ── Public surface ───────────────────────────────────────────────────────────
 __all__ = [
     "attempt_mod_tone_pair",
     "extract_from_adjacent",
@@ -25,12 +22,9 @@ __all__ = [
     "extract_compound_phrases",
 ]
 
-__docformat__ = "google"
-
-# ── Logging ──────────────────────────────────────────────────────────────────
 log = logging.getLogger(__name__)
 
-# ── Lazy spaCy model (safe fallback) ─────────────────────────────────────────
+
 @lru_cache(maxsize=1)
 def get_nlp():
     """Load spaCy model once (lazy); fallback to blank English if model missing."""
@@ -39,7 +33,7 @@ def get_nlp():
     except OSError:
         return spacy.blank("en")  # tokenization-only fallback
 
-# ── Domain imports ───────────────────────────────────────────────────────────
+
 from color_sentiment_extractor.extraction.color.constants import (
     COSMETIC_NOUNS,
     SEMANTIC_CONFLICTS,
@@ -65,16 +59,14 @@ from color_sentiment_extractor.extraction.general.token.suffix import (
     build_augmented_suffix_vocab,
 )
 
-# =============================================================================
-# Helpers
-# =============================================================================
+
 def _surface_modifier(
     raw_mod: str,
     mod_canonical: Optional[str],
     known_modifiers: Set[str],
     known_tones: Set[str],
 ) -> str:
-    """Choose a user-facing surface form for a modifier (keep valid surface, else suffix/base fallback)."""
+    """Pick best display form for modifier."""
     raw = raw_mod.lower()
 
     if raw in known_modifiers:
@@ -107,8 +99,12 @@ def _surface_modifier(
 def _is_invalid_suffixy_tone(
     tone: str, known_tones: Set[str], all_webcolor_names: Set[str]
 ) -> bool:
-    """Reject tones like 'pinkish'/'ashy' unless explicitly known."""
-    return tone.endswith(("y", "ish")) and (tone not in known_tones) and (tone not in all_webcolor_names)
+    """Reject tones like 'pinkish' if not explicitly known."""
+    return (
+        tone.endswith(("y", "ish"))
+        and (tone not in known_tones)
+        and (tone not in all_webcolor_names)
+    )
 
 
 def _safe_add_compound(
@@ -120,7 +116,7 @@ def _safe_add_compound(
     all_webcolor_names: Set[str],
     debug: bool,
 ) -> None:
-    """Centralized add with suffixy-tone guard."""
+    """Add phrase 'mod tone' if valid."""
     if _is_invalid_suffixy_tone(tone, known_tones, all_webcolor_names):
         if debug:
             log.debug("[⛔ INVALID SUFFIXY TONE] '%s' not in known tone lists", tone)
@@ -136,18 +132,22 @@ def _safe_add_compound(
 def is_plausible_modifier(
     token: str, known_modifiers: Set[str], known_color_tokens: Set[str]
 ) -> bool:
-    """Conservative plausibility: alpha, len>=3, and either known or base-recoverable without fuzz."""
+    """
+    Heuristic: looks like a modifier (or can be reduced to one) and not total garbage.
+    """
     if token in known_modifiers or token in known_color_tokens:
         return True
     if not token.isalpha() or len(token) < 3:
         return False
-    base = recover_base(token, known_modifiers, known_color_tokens, fuzzy_fallback=False)
+    base = recover_base(
+        token,
+        known_modifiers=known_modifiers,
+        known_tones=known_color_tokens,
+        fuzzy_fallback=False,
+    )
     return bool(base and base in known_modifiers)
 
 
-# =============================================================================
-# 1) Compound builder
-# =============================================================================
 def attempt_mod_tone_pair(
     mod_candidate: str,
     tone_candidate: str,
@@ -159,7 +159,10 @@ def attempt_mod_tone_pair(
     llm_client,
     debug: bool = False,
 ) -> None:
-    """Resolve (modifier, tone) with recovery/LLM fallback; write into `compounds` and `raw_compounds`."""
+    """
+    Try to resolve modifier+tone with recovery / fallback / LLM.
+    Writes to compounds/raw_compounds if confident.
+    """
     if debug:
         log.debug("──────────── 🧪 attempt_mod_tone_pair ────────────")
         log.debug("[🔍 MODIFIER CANDIDATE] '%s'", mod_candidate)
@@ -170,7 +173,7 @@ def attempt_mod_tone_pair(
         if debug:
             log.debug("[🔎 RESOLUTION START] Role=%s | Candidate='%s'", role, candidate)
 
-        # Token-based resolution (no fuzzy)
+        # direct resolver, no fuzz
         result = resolve_modifier_token(
             candidate,
             known_modifiers,
@@ -181,7 +184,7 @@ def attempt_mod_tone_pair(
         if debug and result:
             log.debug("[✅ RESOLVED VIA TOKEN] '%s' → '%s'", candidate, result)
 
-        # Accept direct tone if known
+        # accept direct tone as-is if known
         if not result and role == "tone" and (
             candidate in known_tones or candidate in all_webcolor_names
         ):
@@ -228,7 +231,7 @@ def attempt_mod_tone_pair(
     if debug:
         log.debug("[🎯 FINAL RESOLUTION] mod='%s' tone='%s'", mod, tone)
 
-    # Don't accept rewriting a modifier into an unknown token
+    # don't allow rewriting modifier to something we still don't trust
     if mod_candidate != mod and mod not in known_modifiers:
         if debug:
             log.debug("[⛔ MODIFIER REWRITE BLOCKED] '%s' → '%s' not trusted", mod_candidate, mod)
@@ -237,9 +240,6 @@ def attempt_mod_tone_pair(
     _safe_add_compound(compounds, raw_compounds, mod, tone, known_tones, all_webcolor_names, debug)
 
 
-# =============================================================================
-# 2) Compound recovery from split tokens
-# =============================================================================
 def extract_from_split(
     tokens: Iterable[Token],
     compounds: Set[str],
@@ -252,7 +252,10 @@ def extract_from_split(
     *,
     aug_vocab: Optional[Set[str]] = None,
 ) -> None:
-    """Recover compounds from tokens that need smart splits (incl. binary left|right fallback)."""
+    """
+    Recover modifier+tone from tokens that might be internally splittable
+    ('dustyrose' -> ['dusty', 'rose'], etc.).
+    """
     for token in tokens:
         text = token.text.lower()
         pos = getattr(token, "pos_", "") or ""
@@ -277,6 +280,7 @@ def extract_from_split(
             log.debug("[🔍 ATTEMPT SPLIT] '%s'", text)
 
         parts = split_tokens_to_parts(text, known_modifiers | known_tones, debug=debug)
+
         if not parts or len(parts) not in {2, 3} or (len(parts) == 1 and parts[0] in known_tones):
             if debug:
                 log.debug("[⛔ SPLIT FAILED] → %s", parts)
@@ -285,16 +289,18 @@ def extract_from_split(
             if len(text) < 4:
                 continue
 
-            # Binary left|right fallback
             for i in range(2, len(text) - 1):
                 left = text[:i]
                 right = text[i:]
 
-                # Right is tone → left must be/become a valid modifier
+                # Right is tone -> left must behave like modifier
                 if right in known_tones:
                     left_mod = match_suffix_fallback(left, known_modifiers, known_tones) or left
                     left_base = recover_base(
-                        left_mod, known_modifiers, known_tones, fuzzy_fallback=True
+                        left_mod,
+                        known_modifiers=known_modifiers,
+                        known_tones=known_tones,
+                        fuzzy_fallback=True,
                     )
 
                     if debug:
@@ -307,16 +313,24 @@ def extract_from_split(
                             left, left_base, known_modifiers, known_tones
                         )
                         _safe_add_compound(
-                            compounds, raw_compounds, surface_left, right,
-                            known_tones, all_webcolor_names, debug
+                            compounds,
+                            raw_compounds,
+                            surface_left,
+                            right,
+                            known_tones,
+                            all_webcolor_names,
+                            debug,
                         )
                         break
 
-                # Left is tone → right must be/become a valid modifier (output order: mod tone)
+                # Left is tone -> right must act like modifier (reverse order)
                 elif left in known_tones:
                     right_mod = match_suffix_fallback(right, known_modifiers, known_tones) or right
                     right_base = recover_base(
-                        right_mod, known_modifiers, known_tones, fuzzy_fallback=True
+                        right_mod,
+                        known_modifiers=known_modifiers,
+                        known_tones=known_tones,
+                        fuzzy_fallback=True,
                     )
 
                     if debug:
@@ -324,24 +338,31 @@ def extract_from_split(
                         log.debug("[🔁 NORMALIZED RIGHT] '%s' → '%s'", right, right_mod)
                         log.debug("[🔁 RECOVERED BASE] '%s' → '%s'", right_mod, right_base)
 
-                    if (right_mod in known_modifiers) or (right_mod in known_color_tokens) or (
-                        right_base in known_modifiers
+                    if (
+                        (right_mod in known_modifiers)
+                        or (right_mod in known_color_tokens)
+                        or (right_base in known_modifiers)
                     ):
                         surface_right = _surface_modifier(
                             right, right_base, known_modifiers, known_tones
                         )
                         _safe_add_compound(
-                            compounds, raw_compounds, surface_right, left,
-                            known_tones, all_webcolor_names, debug
+                            compounds,
+                            raw_compounds,
+                            surface_right,
+                            left,
+                            known_tones,
+                            all_webcolor_names,
+                            debug,
                         )
                         break
 
             continue
 
-        # Light normalization of split parts
+        # Light-normalize split parts
         parts = [match_suffix_fallback(p, known_modifiers, known_tones) or p for p in parts]
 
-        # 2-part
+        # 2-part case
         if len(parts) == 2:
             first, second = parts
             first_is_tone = is_known_tone(first, known_tones, all_webcolor_names)
@@ -353,8 +374,11 @@ def extract_from_split(
             if debug:
                 log.debug(
                     "[🔍 2-PART] '%s'→tone=%s,mod=%s | '%s'→tone=%s",
-                    first, first_is_tone, bool(first_canon_mod),
-                    second, second_is_tone,
+                    first,
+                    first_is_tone,
+                    bool(first_canon_mod),
+                    second,
+                    second_is_tone,
                 )
 
             if (first_canon_mod or first_is_tone) and second_is_tone:
@@ -363,20 +387,30 @@ def extract_from_split(
                         first, first_canon_mod, known_modifiers, known_tones
                     )
                     _safe_add_compound(
-                        compounds, raw_compounds, surface_first, second,
-                        known_tones, all_webcolor_names, debug
+                        compounds,
+                        raw_compounds,
+                        surface_first,
+                        second,
+                        known_tones,
+                        all_webcolor_names,
+                        debug,
                     )
                 else:
-                    if not first_is_tone:  # avoid "red purple" style pairs
+                    if not first_is_tone:  # avoid "red purple"
                         _safe_add_compound(
-                            compounds, raw_compounds, first, second,
-                            known_tones, all_webcolor_names, debug
+                            compounds,
+                            raw_compounds,
+                            first,
+                            second,
+                            known_tones,
+                            all_webcolor_names,
+                            debug,
                         )
             else:
                 if debug:
                     log.debug("[❌ INVALID 2-PART] '%s %s'", first, second)
 
-        # 3-part
+        # 3-part case
         elif len(parts) == 3:
             first, second, third = parts
 
@@ -397,13 +431,23 @@ def extract_from_split(
             if debug:
                 log.debug(
                     "[🔍 3-PART] '%s %s %s' | mod=[%s,%s,%s] tone=[%s,%s,%s]",
-                    first, second, third,
-                    bool(first_canon_mod), bool(second_canon_mod), bool(third_canon_mod),
-                    first_is_tone, second_is_tone, third_is_tone,
+                    first,
+                    second,
+                    third,
+                    bool(first_canon_mod),
+                    bool(second_canon_mod),
+                    bool(third_canon_mod),
+                    first_is_tone,
+                    second_is_tone,
+                    third_is_tone,
                 )
 
             def surf(token_: str, canon_: Optional[str]) -> str:
-                return _surface_modifier(token_, canon_, known_modifiers, known_tones) if canon_ else token_
+                return (
+                    _surface_modifier(token_, canon_, known_modifiers, known_tones)
+                    if canon_
+                    else token_
+                )
 
             valid_1 = first_canon_mod and second_is_tone and third_canon_mod
             valid_2 = first_canon_mod and second_canon_mod and third_is_tone
@@ -412,13 +456,37 @@ def extract_from_split(
             if valid_1:
                 a_out = surf(first, first_canon_mod)
                 tone_tok = third if third_is_tone else second
-                _safe_add_compound(compounds, raw_compounds, a_out, tone_tok, known_tones, all_webcolor_names, debug)
+                _safe_add_compound(
+                    compounds,
+                    raw_compounds,
+                    a_out,
+                    tone_tok,
+                    known_tones,
+                    all_webcolor_names,
+                    debug,
+                )
             elif valid_2:
                 a_out = surf(first, first_canon_mod)
-                _safe_add_compound(compounds, raw_compounds, a_out, third, known_tones, all_webcolor_names, debug)
+                _safe_add_compound(
+                    compounds,
+                    raw_compounds,
+                    a_out,
+                    third,
+                    known_tones,
+                    all_webcolor_names,
+                    debug,
+                )
             elif valid_3:
                 a_out = surf(first, first_canon_mod)
-                _safe_add_compound(compounds, raw_compounds, a_out, third, known_tones, all_webcolor_names, debug)
+                _safe_add_compound(
+                    compounds,
+                    raw_compounds,
+                    a_out,
+                    third,
+                    known_tones,
+                    all_webcolor_names,
+                    debug,
+                )
             else:
                 if debug:
                     log.debug("[❌ INVALID 3-PART] '%s %s %s'", first, second, third)
@@ -428,14 +496,16 @@ def extract_from_split(
                     if merged_tone in known_tones:
                         a_out = surf(first, first_canon_mod)
                         _safe_add_compound(
-                            compounds, raw_compounds, a_out, merged_tone,
-                            known_tones, all_webcolor_names, debug
+                            compounds,
+                            raw_compounds,
+                            a_out,
+                            merged_tone,
+                            known_tones,
+                            all_webcolor_names,
+                            debug,
                         )
 
 
-# =============================================================================
-# 3) Compound recovery from glued tokens
-# =============================================================================
 def extract_from_glued(
     tokens: Iterable[Token],
     compounds: Set[str],
@@ -448,7 +518,9 @@ def extract_from_glued(
     *,
     aug_vocab: Optional[Set[str]] = None,
 ) -> None:
-    """Extract compounds from glued tokens (e.g., 'dustyrose', 'greylavenderpink')."""
+    """
+    Recover from glued tokens like 'dustyrose'.
+    """
     for token in tokens:
         raw = token.text.lower()
 
@@ -466,14 +538,16 @@ def extract_from_glued(
         parts = split_glued_tokens(
             raw,
             known_color_tokens,
-            known_modifiers,
+            frozenset(known_modifiers),
             debug=debug,
             vocab=aug_vocab,
         )
 
-        # 3-part fallback via split_tokens_to_parts
+        # try backup split if the main didn't convince us
         if not parts or len(parts) not in {2, 3} or (len(parts) == 1 and parts[0] in known_tones):
-            fallback_parts = split_tokens_to_parts(raw, known_modifiers | known_tones, debug=debug)
+            fallback_parts = split_tokens_to_parts(
+                raw, known_modifiers | known_tones, debug=debug
+            )
             if fallback_parts and len(fallback_parts) == 3:
                 a, b, c = fallback_parts
                 tone_b = is_known_tone(b, known_tones, all_webcolor_names)
@@ -490,22 +564,38 @@ def extract_from_glued(
 
                 mod_a = normalize_mod(a)
                 if mod_a and tone_b and tone_c:
-                    surface_a = _surface_modifier(a, mod_a, known_modifiers, known_tones)
-                    _safe_add_compound(compounds, raw_compounds, surface_a, c, known_tones, all_webcolor_names, debug)
+                    surface_a = _surface_modifier(
+                        a, mod_a, known_modifiers, known_tones
+                    )
+                    _safe_add_compound(
+                        compounds,
+                        raw_compounds,
+                        surface_a,
+                        c,
+                        known_tones,
+                        all_webcolor_names,
+                        debug,
+                    )
             continue
 
-        # 2-part
         if len(parts) == 2:
             a, b = parts
             mod_canon = resolve_modifier_token(a, known_modifiers, known_tones, debug=debug)
             is_tone_b = is_known_tone(b, known_tones, all_webcolor_names)
 
-            # Require b to be a known tone (avoid mod+mod)
+            # we only take it if b is a tone (avoid mod+mod)
             if mod_canon and is_tone_b:
                 surface_mod = _surface_modifier(a, mod_canon, known_modifiers, known_tones)
-                _safe_add_compound(compounds, raw_compounds, surface_mod, b, known_tones, all_webcolor_names, debug)
+                _safe_add_compound(
+                    compounds,
+                    raw_compounds,
+                    surface_mod,
+                    b,
+                    known_tones,
+                    all_webcolor_names,
+                    debug,
+                )
 
-        # 3-part
         elif len(parts) == 3:
             a, b, c = parts
 
@@ -520,11 +610,16 @@ def extract_from_glued(
             if debug:
                 log.debug(
                     "[🔍 GLUED 3-PART] '%s %s %s' | mod=[%s,%s,%s] tone=[%s,%s,%s]",
-                    a, b, c, bool(mod_a), bool(mod_b), bool(mod_c), tone_a, tone_b, tone_c
+                    a, b, c, bool(mod_a), bool(mod_b), bool(mod_c),
+                    tone_a, tone_b, tone_c,
                 )
 
             def surf(token_: str, canon_: Optional[str]) -> str:
-                return _surface_modifier(token_, canon_, known_modifiers, known_tones) if canon_ else token_
+                return (
+                    _surface_modifier(token_, canon_, known_modifiers, known_tones)
+                    if canon_
+                    else token_
+                )
 
             valid = (
                 (mod_a and tone_b and tone_c)
@@ -533,13 +628,18 @@ def extract_from_glued(
             )
             if valid:
                 a_out = surf(a, mod_a)
-                tone_tok = c if tone_c else b if tone_b else c  # prefer last available tone
-                _safe_add_compound(compounds, raw_compounds, a_out, tone_tok, known_tones, all_webcolor_names, debug)
+                tone_tok = c if tone_c else (b if tone_b else c)
+                _safe_add_compound(
+                    compounds,
+                    raw_compounds,
+                    a_out,
+                    tone_tok,
+                    known_tones,
+                    all_webcolor_names,
+                    debug,
+                )
 
 
-# =============================================================================
-# 4) Adjacent-token extraction
-# =============================================================================
 def extract_from_adjacent(
     tokens: Iterable[Token],
     compounds: Set[str],
@@ -549,7 +649,7 @@ def extract_from_adjacent(
     all_webcolor_names: Set[str],
     debug: bool = False,
 ) -> None:
-    """Extract compounds from adjacent tokens (e.g., 'soft pink', 'barely-there pink')."""
+    """Scan adjacent tokens: 'soft pink', 'barely-there pink', etc."""
     tokens_list = list(tokens)
     n = len(tokens_list)
 
@@ -570,7 +670,15 @@ def extract_from_adjacent(
 
         if mod_canon and tone:
             surface_mod = _surface_modifier(raw_mod, mod_canon, known_modifiers, known_tones)
-            _safe_add_compound(compounds, raw_compounds, surface_mod, tone, known_tones, all_webcolor_names, debug)
+            _safe_add_compound(
+                compounds,
+                raw_compounds,
+                surface_mod,
+                tone,
+                known_tones,
+                all_webcolor_names,
+                debug,
+            )
 
         # 2-word modifier + tone
         if i < n - 2:
@@ -591,13 +699,20 @@ def extract_from_adjacent(
             tone2 = raw_tone2 if raw_tone2 in known_tones else None
 
             if mod2_canon and tone2:
-                surface_mod2 = _surface_modifier(combined_mod_raw, mod2_canon, known_modifiers, known_tones)
-                _safe_add_compound(compounds, raw_compounds, surface_mod2, tone2, known_tones, all_webcolor_names, debug)
+                surface_mod2 = _surface_modifier(
+                    combined_mod_raw, mod2_canon, known_modifiers, known_tones
+                )
+                _safe_add_compound(
+                    compounds,
+                    raw_compounds,
+                    surface_mod2,
+                    tone2,
+                    known_tones,
+                    all_webcolor_names,
+                    debug,
+                )
 
 
-# =============================================================================
-# 5) Orchestrator
-# =============================================================================
 def extract_compound_phrases(
     tokens: Iterable[Token] | Doc,
     compounds: Set[str],
@@ -609,13 +724,15 @@ def extract_compound_phrases(
     raw_text: str = "",
     debug: bool = False,
 ) -> None:
-    """Run adjacent/split/glued extractors with shared augmented vocab and final filtering."""
+    """
+    Orchestrator: run adjacent/split/glued passes and then final cleanup.
+    """
     if raw_text:
         raw_text = raw_text.replace("-", " ")
         tokens = get_nlp()(raw_text)
     tokens = list(tokens)
 
-    # Build once per segment: extended vocab (helps glued splits)
+    # Build shared augmented vocab once for this batch (helps glued splitting)
     aug_vocab = build_augmented_suffix_vocab(known_color_tokens, known_modifiers)
     if debug:
         try:
@@ -623,8 +740,15 @@ def extract_compound_phrases(
         except Exception:
             pass
 
-    # Main extractors
-    extract_from_adjacent(tokens, compounds, raw_compounds, known_modifiers, known_tones, all_webcolor_names, debug)
+    extract_from_adjacent(
+        tokens,
+        compounds,
+        raw_compounds,
+        known_modifiers,
+        known_tones,
+        all_webcolor_names,
+        debug,
+    )
     extract_from_split(
         tokens,
         compounds,
@@ -648,7 +772,7 @@ def extract_compound_phrases(
         aug_vocab=aug_vocab,
     )
 
-    # Fallback: fuzzy-like recovery via strict resolver on adjacent tokens
+    # fuzzy-ish fallback on adjacent tokens where left isn't in known_modifiers yet
     tokens_list = list(tokens)
     for i in range(len(tokens_list) - 1):
         left = normalize_token(tokens_list[i].text, keep_hyphens=True)
@@ -669,9 +793,17 @@ def extract_compound_phrases(
 
         if mod_canon:
             surface_mod = _surface_modifier(left, mod_canon, known_modifiers, known_tones)
-            _safe_add_compound(compounds, raw_compounds, surface_mod, right, known_tones, all_webcolor_names, debug)
+            _safe_add_compound(
+                compounds,
+                raw_compounds,
+                surface_mod,
+                right,
+                known_tones,
+                all_webcolor_names,
+                debug,
+            )
 
-    # Remove blocked (modifier, tone) pairs
+    # final: remove semantically blocked pairs
     blocked = {(m, t) for (m, t) in raw_compounds if is_blocked_modifier_tone_pair(m, t)}
     if blocked:
         for mod, tone in blocked:

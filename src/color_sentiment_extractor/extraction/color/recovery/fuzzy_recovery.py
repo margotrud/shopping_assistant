@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import FrozenSet, Optional, Set
+from typing import AbstractSet, FrozenSet, Optional
 
 # ── Imports ──────────────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
@@ -43,7 +43,7 @@ def _get_known_tones() -> FrozenSet[str]:
     return frozenset(load_config("known_tones", mode="set"))
 
 
-def _common_base(a_norm: str, t_norm: str, *, km: Set[str], kt: Set[str]) -> Optional[str]:
+def _common_base(a_norm: str, t_norm: str, *, km: AbstractSet[str], kt: AbstractSet[str]) -> Optional[str]:
     """Does: Return shared base if both reduce to the same known base, else None."""
     from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 
@@ -59,8 +59,8 @@ def is_suffix_root_match(
     alias: str,
     token: str,
     *,
-    known_modifiers: Optional[Set[str]] = None,
-    known_tones: Optional[Set[str]] = None,
+    known_modifiers: Optional[AbstractSet[str]] = None,
+    known_tones: Optional[AbstractSet[str]] = None,
     debug: bool = False,
 ) -> bool:
     """
@@ -75,8 +75,8 @@ def is_suffix_root_match(
     if not alias or not token:
         return False
 
-    km = known_modifiers or _get_known_modifiers()
-    kt = known_tones or _get_known_tones()
+    km: AbstractSet[str] = known_modifiers or _get_known_modifiers()
+    kt: AbstractSet[str] = known_tones or _get_known_tones()
 
     a_norm = normalize_token(alias, keep_hyphens=True)
     t_norm = normalize_token(token, keep_hyphens=True)

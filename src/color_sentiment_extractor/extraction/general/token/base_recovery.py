@@ -1,4 +1,4 @@
-# extraction/general/token/base_recovery.py
+# src/color_sentiment_extractor/extraction/general/token/base_recovery.py
 # ──────────────────────────────────────────────────────────────
 # Token Base Recovery
 # Single entrypoint for base-form recovery across the project.
@@ -15,12 +15,13 @@ Returns: recover_base() plus helpers is_known_modifier()/is_known_tone().
 Used by: Token normalization flows and color/modifier extraction stages.
 
 Notes:
-- Normalization here is intentionally light: lower + strip + remove spaces/hyphens/underscores.
-  (We do NOT call normalize_token to keep semantics identical to v1 behavior.)
+- Normalization ici volontairement légère: lower + strip + remove spaces/hyphens/underscores.
+  (On n'appelle PAS normalize_token pour garder la sémantique v1.)
 """
 
 from functools import lru_cache
-from typing import Iterable, Optional, FrozenSet
+from typing import Iterable, Optional, FrozenSet, Callable
+from collections.abc import Set as AbcSet
 import logging
 
 from color_sentiment_extractor.extraction.color.constants import (
@@ -30,21 +31,32 @@ from color_sentiment_extractor.extraction.color.constants import (
 )
 
 from color_sentiment_extractor.extraction.general.fuzzy import fuzzy_match_token_safe
-from color_sentiment_extractor.extraction.color.vocab import get_known_tones as _vocab_get_known_tones
-from color_sentiment_extractor.extraction.general.utils.load_config import load_config, ConfigFileNotFound
+from color_sentiment_extractor.extraction.color.vocab import (
+    get_known_tones as _vocab_get_known_tones,
+)
+from color_sentiment_extractor.extraction.general.utils.load_config import (
+    load_config,
+    ConfigFileNotFound,
+)
 
 # Suffix registry (ordered list) + optional suffix-aware dispatcher
 from color_sentiment_extractor.extraction.general.token.suffix.registry import (
     SUFFIX_RECOVERY_FUNCS,
+    RecoverFn,  # <- on importe le type pour annoter proprement
 )
 
+# Annotation **avant** le try/except pour que mypy accepte l'affectation à None
+_recover_with_registry_impl: Optional[RecoverFn]
 try:
     # Optional: available if dispatcher is included in the build
     from color_sentiment_extractor.extraction.general.token.suffix.registry import (
-        recover_with_registry as _recover_with_registry,
+        recover_with_registry as _recover_with_registry_impl,
     )
 except ImportError:  # pragma: no cover
-    _recover_with_registry = None  # type: ignore[misc]
+    _recover_with_registry_impl = None
+
+# Local optional callable for mypy
+_recover_with_registry: Optional[RecoverFn] = _recover_with_registry_impl
 
 __all__ = [
     "recover_base",
@@ -62,33 +74,34 @@ VOWELS_CONS: set[str] = set("aeiou")   # y as consonant
 VOWELS_VOW:  set[str] = set("aeiouy")  # y as vowel
 
 # Canonical sets (loaded from validated config)
-KNOWN_MODIFIERS: set[str] = load_config("known_modifiers", mode="set")
-KNOWN_TONES:   set[str] = set(_vocab_get_known_tones())
+# Note: load_config(mode="set") returns a FrozenSet[str] → on le typpe en FrozenSet.
+KNOWN_MODIFIERS: FrozenSet[str] = load_config("known_modifiers", mode="set")
+KNOWN_TONES:     FrozenSet[str] = frozenset(_vocab_get_known_tones())
 
 # ──────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────
 
 @lru_cache(maxsize=1)
-def _get_default_known_tones() -> frozenset[str]:
+def _get_default_known_tones() -> FrozenSet[str]:
     # Vient du vocab (CSS + XKCD + fallbacks), pas du JSON disque
     return frozenset(_vocab_get_known_tones())
 
 @lru_cache(maxsize=1)
-def _get_default_known_modifiers() -> frozenset[str]:
+def _get_default_known_modifiers() -> FrozenSet[str]:
     # Prend known_modifiers depuis data/ si présent, sinon set vide (safe)
     try:
-        return frozenset(load_config("known_modifiers", mode="set"))
+        return load_config("known_modifiers", mode="set")
     except ConfigFileNotFound:
         return frozenset()
 
 def _call_suffix_func(
-    func,
+    func: Callable[..., Optional[str]],
     raw: str,
-    known_modifiers: set[str],
-    known_tones: set[str],
+    known_modifiers: AbcSet[str],
+    known_tones: AbcSet[str],
     debug: bool = False,
-) -> str | None:
+) -> Optional[str]:
     """Does: Call a suffix recovery function with flexible signature. Returns: Result or None."""
     try:
         return func(raw, known_modifiers, known_tones, debug=debug)
@@ -102,7 +115,7 @@ def _call_suffix_func(
                 return None
 
 
-def _is_known_token(tok: str, known_modifiers: set[str], known_tones: set[str]) -> bool:
+def _is_known_token(tok: str, known_modifiers: AbcSet[str], known_tones: AbcSet[str]) -> bool:
     return tok in known_modifiers or tok in known_tones
 
 
@@ -110,20 +123,23 @@ def _is_semantic_conflict(a: str, b: str) -> bool:
     if not a or not b or a == b:
         return False
     al, bl = a.lower(), b.lower()
-    if isinstance(SEMANTIC_CONFLICTS, dict):
-        for k, vs in SEMANTIC_CONFLICTS.items():
-            group = {str(k).lower(), *[str(v).lower() for v in (vs if isinstance(vs, Iterable) else [vs])]}
-            if al in group and bl in group and al != bl:
-                return True
-    else:
-        for group in SEMANTIC_CONFLICTS:
-            g = {str(x).lower() for x in (group if isinstance(group, Iterable) else [group])}
-            if al in g and bl in g and al != bl:
-                return True
+    try:
+        if isinstance(SEMANTIC_CONFLICTS, dict):
+            for k, vs in SEMANTIC_CONFLICTS.items():
+                group = {str(k).lower(), *[str(v).lower() for v in (vs if isinstance(vs, Iterable) else [vs])]}
+                if al in group and bl in group and al != bl:
+                    return True
+        else:
+            for group in SEMANTIC_CONFLICTS:
+                g = {str(x).lower() for x in (group if isinstance(group, Iterable) else [group])}
+                if al in g and bl in g and al != bl:
+                    return True
+    except Exception:  # defensive
+        return False
     return False
 
 
-def _match_override(tok: str, known_modifiers: set[str], known_tones: set[str]) -> str | None:
+def _match_override(tok: str, known_modifiers: AbcSet[str], known_tones: AbcSet[str]) -> Optional[str]:
     """Does: Apply RECOVER_BASE_OVERRIDES (dict or iterable of (src,dst)/sets). Returns: Base or None."""
     if isinstance(RECOVER_BASE_OVERRIDES, dict):
         base = RECOVER_BASE_OVERRIDES.get(tok)
@@ -165,7 +181,7 @@ def recover_base(
     known_tones: Optional[Iterable[str]] = None,
     debug: bool = False,
     **legacy_kwargs,
-) -> str | None:
+) -> Optional[str]:
     """
     Does: Map a noisy/suffixed token to a canonical base via:
           overrides → suffix rules (registry/dispatcher) → direct hit → fuzzy → abbr fallback.
@@ -182,19 +198,19 @@ def recover_base(
     if "fuzzy_fallback" in legacy_kwargs and isinstance(legacy_kwargs["fuzzy_fallback"], bool):
         allow_fuzzy = legacy_kwargs["fuzzy_fallback"]
 
-    # Optional vocab overrides (essaitests2/back-compat)
-    km: FrozenSet[str] = (
+    # Optional vocab overrides
+    km0: FrozenSet[str] = (
         frozenset(known_modifiers) if known_modifiers is not None else _get_default_known_modifiers()
     )
-    kt: FrozenSet[str] = (
+    kt0: FrozenSet[str] = (
         frozenset(known_tones) if known_tones is not None else _get_default_known_tones()
     )
 
     fuzzy_threshold = int(legacy_kwargs.get("fuzzy_threshold", _DEFAULT_FUZZY_THRESHOLD))
 
-    # Normalize vocab to sets once
-    if not isinstance(km, set): km = set(km)
-    if not isinstance(kt, set): kt = set(kt)
+    # Normalize vocab to sets once (variables locales mutables)
+    km: set[str] = set(km0)
+    kt: set[str] = set(kt0)
 
     # Light normalization (no singularize here)
     norm = str(token).lower().strip()
@@ -204,7 +220,7 @@ def recover_base(
         return None
 
     # Use a set[str] for known tokens (safer for fuzzy_core expectations)
-    combined_known: set[str] = set(km) | set(kt)
+    combined_known: set[str] = km | kt
 
     # Optional caching branch (use normalized raw in cache key)
     if legacy_kwargs.get("use_cache"):
@@ -235,20 +251,22 @@ def _recover_base_cached_with_params(
     raw: str,
     allow_fuzzy: bool,
     fuzzy_threshold: int,
-    km: frozenset[str],
-    kt: frozenset[str],
-) -> str | None:
+    km: FrozenSet[str],
+    kt: FrozenSet[str],
+) -> Optional[str]:
     """Does: Cached entry with stable params in the cache key. Returns: Base token or None."""
+    km_set = set(km)
+    kt_set = set(kt)
     return _recover_base_impl(
         raw=raw,
-        known_modifiers=set(km),
-        known_tones=set(kt),
+        known_modifiers=km_set,
+        known_tones=kt_set,
         debug=False,
         fuzzy_fallback=allow_fuzzy,
         fuzzy_threshold=fuzzy_threshold,
         depth=0,
         max_depth=3,
-        combined_known=set(km) | set(kt),
+        combined_known=km_set | kt_set,
     )
 
 
@@ -267,7 +285,7 @@ def _recover_base_impl(
     depth: int,
     max_depth: int,
     combined_known: set[str],
-) -> str | None:
+) -> Optional[str]:
     if debug:
         logger.debug("[recover_base] raw=%r depth=%d fuzzy=%s", raw, depth, fuzzy_fallback)
 
@@ -284,9 +302,10 @@ def _recover_base_impl(
         return ov
 
     # 2) Suffix recovery chain (ordered) — prefer dispatcher if available
-    if _recover_with_registry:
+    if _recover_with_registry is not None:
         try:
-            result = _recover_with_registry(raw, known_modifiers, known_tones, debug=False)  # type: ignore[misc]
+            # IMPORTANT: appel **positionnel** (pas debug=...) pour éviter l'erreur mypy
+            result = _recover_with_registry(raw, known_modifiers, known_tones, False)
         except Exception:  # pragma: no cover
             logger.exception("[suffix-dispatch] recover_with_registry crashed")
             result = None
@@ -422,7 +441,7 @@ def _recover_base_impl(
 
         target = _sk_cons(raw)
 
-        best: str | None = None
+        best: Optional[str] = None
         # Prefer modifiers over tones; among same type prefer shorter, then lexicographic
         best_score: tuple[int, int, str] = (-1, 10**9, "")
 
@@ -460,5 +479,3 @@ def _recover_base_impl(
     if debug:
         logger.debug("[no-match] %r", raw)
     return None
-
-

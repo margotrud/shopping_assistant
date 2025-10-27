@@ -10,8 +10,7 @@ Returns: Token-level scorers (fuzzy_token_score, rhyming_conflict) and list-over
 Used by: General fuzzy matching across color/expression/token pipelines.
 """
 
-import re
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Sequence, Optional
 from rapidfuzz import fuzz as rf_fuzz
 
 __all__ = [
@@ -39,8 +38,6 @@ def _norm(s: str) -> str:
     """
     Does: Lowercase, trim, map hyphens/underscores to spaces, collapse spaces.
     """
-    if s is None:
-        return ""
     s = str(s).lower().strip().replace("-", " ").replace("_", " ")
     return " ".join(s.split())
 
@@ -69,18 +66,18 @@ def fuzzy_token_score(a: str, b: str) -> float:
     if a == b:
         return 100.0
 
-    ratio = rf_fuzz.ratio(a, b)
-    partial = rf_fuzz.partial_ratio(a, b)
+    ratio: float = rf_fuzz.ratio(a, b)
+    partial: float = rf_fuzz.partial_ratio(a, b)
 
     # Prefix bonus
-    cpl = _common_prefix_len(a, b)
-    prefix_bonus = min(PREFIX_BONUS_CAP, cpl * PREFIX_BONUS_PER_CHAR) if cpl >= 2 else 0
+    cpl: int = _common_prefix_len(a, b)
+    prefix_bonus: int = min(PREFIX_BONUS_CAP, cpl * PREFIX_BONUS_PER_CHAR) if cpl >= 2 else 0
 
     # Rhyme penalty for short tokens that only share ending
-    rhyme_penalty = RHYME_PENALTY if rhyming_conflict(a, b) else 0
+    rhyme_penalty: int = RHYME_PENALTY if rhyming_conflict(a, b) else 0
 
     # Length gap penalty
-    len_gap_penalty = min(LEN_GAP_PENALTY_CAP, abs(len(a) - len(b)) * LEN_GAP_PENALTY_PER)
+    len_gap_penalty: float = min(LEN_GAP_PENALTY_CAP, abs(len(a) - len(b)) * LEN_GAP_PENALTY_PER)
 
     score = (ratio + partial) / 2 + prefix_bonus - rhyme_penalty - len_gap_penalty
     score = max(0.0, min(100.0, round(score)))
@@ -130,11 +127,12 @@ def fuzzy_token_overlap_count(
     a_norm: List[str] = [_norm(t) for t in a_tokens if _norm(t)]
     b_norm: List[str] = [_norm(t) for t in b_tokens if _norm(t)]
 
-    count = 0
-    used = [False] * len(b_norm)
+    count: int = 0
+    used: List[bool] = [False] * len(b_norm)
 
     for a in a_norm:
         # exact first
+        exact_idx: Optional[int]
         try:
             exact_idx = next(j for j, (bb, u) in enumerate(zip(b_norm, used)) if not u and a == bb)
         except StopIteration:
@@ -146,17 +144,17 @@ def fuzzy_token_overlap_count(
             continue
 
         # fuzzy fallback: pick best unused
-        best_j = -1
-        best_score = 0
+        best_j: int = -1
+        best_score: float = float("-inf")
         for j, (bb, u) in enumerate(zip(b_norm, used)):
             if u:
                 continue
-            s = rf_fuzz.ratio(a, bb)
+            s: float = rf_fuzz.ratio(a, bb)
             if s > best_score:
                 best_score = s
                 best_j = j
 
-        if best_j >= 0 and best_score >= threshold:
+        if best_j >= 0 and best_score >= float(threshold):
             used[best_j] = True
             count += 1
 

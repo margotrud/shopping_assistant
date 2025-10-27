@@ -60,3 +60,4 @@ _UL/
 # --- MyPy / Ruff caches (optional cleanup) ---
 .mypy_cache/
 .ruff_cache/
+.env

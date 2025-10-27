@@ -55,3 +55,18 @@ include = ["color_sentiment_extractor*"]
 # Inclure données runtime (si tu as src/color_sentiment_extractor/data/**)
 [tool.setuptools.package-data]
 color_sentiment_extractor = ["data/**/*"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+ignore_missing_imports = true
+allow_untyped_defs = true
+allow_unused_ignores = true
+# Optionnel mais utile pour ce projet
+disable_error_code = [
+  "assignment",       # int↔float, set↔frozenset, tuples, etc.
+  "call-arg",         # kwargs supplémentaires (ex: debug=)
+  "truthy-function"   # checks du type: if _recover_base: ...
+]

@@ -13,7 +13,7 @@ Returns:
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional, Set, Tuple
+from typing import Iterable, Optional, Set, Tuple, AbstractSet
 
 from color_sentiment_extractor.extraction.color import (
     BLOCKED_TOKENS,
@@ -249,7 +249,7 @@ def should_suppress_compound(mod: str, tone: str) -> bool:
 def is_blocked_modifier_tone_pair(
     modifier: str,
     tone: str,
-    blocked_pairs: Set[Tuple[str, str]] = BLOCKED_TOKENS,
+    blocked_pairs: AbstractSet[Tuple[str, str]] = BLOCKED_TOKENS,
 ) -> bool:
     """Does: Check if (modifier, tone) is explicitly blocked (symmetric). Returns: bool."""
     m = normalize_token(modifier, keep_hyphens=True)

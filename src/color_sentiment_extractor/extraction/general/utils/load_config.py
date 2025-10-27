@@ -1,30 +1,30 @@
-# Chatbot/extraction/general/utils/load_config.py
+# src/color_sentiment_extractor/extraction/general/utils/load_config.py
+
+"""Load JSON configs from a <data/> directory with caching and typed coercions.
+
+Modes:
+- "raw"             -> return parsed JSON as-is
+- "set"             -> return frozenset[str] (coerce scalars to str)
+- "validated_dict"  -> return dict[str, Any] after an optional validator
+
+Used by vocab loaders, extraction pipelines, and tests needing hot reload.
+"""
 from __future__ import annotations
 
-"""
-load_config.py
-
-Does: Locate <data/> and load JSON configs with caching and typed coercions ('raw'|'set'|'validated_dict').
-Returns: Raw JSON, frozenset[str], or validated dict depending on mode.
-Used by: Vocab loaders, extraction pipelines, tests needing hot-reload of config.
-"""
-
-from typing import (
-    Any,
-    Dict,
-    FrozenSet,
-    Literal,
-    Optional,
-    Callable,
-    overload,
-)
 import json
-import os
 import logging
+import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from types import TracebackType
-from typing import Type as _ExcType  # for exception annotations (internal)
+from typing import Any, Literal, overload
+
+# --- optional json5 support (no hard dependency) -----------------------------
+try:  # mypy: json5 may be missing in most envs
+    import json5 as _json5
+except Exception:  # pragma: no cover - only hit when json5 missing
+    _json5 = None  # type: ignore[assignment]
 
 # ── Public surface ────────────────────────────────────────────────────────────
 Mode = Literal["raw", "set", "validated_dict"]
@@ -32,58 +32,74 @@ __all__ = [
     "Mode",
     "load_config",
     "clear_config_cache",
+    "temp_data_dir",
     "DataDirNotFound",
     "ConfigFileNotFound",
     "ConfigParseError",
     "ConfigTypeError",
 ]
 
-# ── Exceptions dédiées ───────────────────────────────────────────────────────
+
+# ── Exceptions ───────────────────────────────────────────────────────────────
 class DataDirNotFound(FileNotFoundError):
-    """Does: Raised when no 'data' directory is found while walking upwards. Returns: None."""
+    """Raise when no 'data' directory is found while walking upwards."""
+
 
 class ConfigFileNotFound(FileNotFoundError):
-    """Does: Raised when the requested config file cannot be read or resolved. Returns: None."""
+    """Raise when the requested config file cannot be read or resolved."""
+
 
 class ConfigParseError(ValueError):
-    """Does: Raised when JSON parsing/validation fails for a config file. Returns: None."""
+    """Raise when JSON parsing/validation fails for a config file."""
+
 
 class ConfigTypeError(TypeError):
-    """Does: Raised when the parsed JSON doesn't match the expected structure. Returns: None."""
+    """Raise when the parsed JSON doesn't match the expected structure."""
 
 
 # ── Logging & cache ──────────────────────────────────────────────────────────
 log = logging.getLogger(__name__)
 _CACHE_LOCK = threading.RLock()
-_CONFIG_CACHE: dict[tuple[Path, str, str, bool], Any] = {}
+# cache key includes: path, mtime, mode, encoding, allow_comments, validator_present
+_CONFIG_CACHE: dict[tuple[Path, float, str, str, bool, bool], Any] = {}
 
 
 def clear_config_cache() -> None:
-    """Does: Empties the in-memory config cache (useful for pytest/hot-reload). Returns: None."""
+    """Empty the in-memory config cache (useful for pytest/hot-reload)."""
     with _CACHE_LOCK:
         _CONFIG_CACHE.clear()
         log.debug("Config cache cleared.")
 
 
-def _candidate_data_dirs(start: Optional[Path] = None) -> list[Path]:
-    """Does: Compute candidate 'data'/'Data' directories walking up from start. Returns: Ordered list of Paths."""
+def _candidate_data_dirs(start: Path | None = None) -> list[Path]:
+    """Compute candidate 'data'/'Data' directories walking up from start."""
     start = (start or Path(__file__)).resolve()
     cands: list[Path] = []
     for p in [start, *start.parents]:
         for name in ("data", "Data"):
             cands.append((p / name).resolve())
+    # also consider repo-style src-root /data when running from site-packages layout
     return cands
 
 
-def _default_data_dir(start: Optional[Path] = None) -> Path:
-    """Does: Return the first existing candidate directory among _candidate_data_dirs. Returns: Path or raises."""
+def _default_data_dir(start: Path | None = None) -> Path:
+    """Return the first existing candidate directory or raise."""
     for cand in _candidate_data_dirs(start):
         if cand.is_dir():
             return cand
     raise DataDirNotFound(
         "No 'data' directory found.\n"
-        f"Tried:\n  " + "\n  ".join(str(p) for p in _candidate_data_dirs(start))
+        "Tried:\n  " + "\n  ".join(str(p) for p in _candidate_data_dirs(start))
     )
+
+
+def _env_data_dir() -> Path | None:
+    """Resolve data dir from env if set."""
+    for var in ("DATA_DIR", "COLOR_SENTIMENT_DATA_DIR", "COLOR_DATA_DIR"):
+        v = os.environ.get(var)
+        if v:
+            return Path(os.path.expanduser(v)).resolve()
+    return None
 
 
 @overload
@@ -91,7 +107,7 @@ def load_config(
     file: str | os.PathLike[str],
     mode: Literal["raw"] = "raw",
     *,
-    base_dir: Optional[Path] = None,
+    base_dir: Path | None = None,
     encoding: str = "utf-8",
     validator: None = ...,
     allow_comments: bool = False,
@@ -101,45 +117,39 @@ def load_config(
     file: str | os.PathLike[str],
     mode: Literal["set"] = "set",
     *,
-    base_dir: Optional[Path] = None,
+    base_dir: Path | None = None,
     encoding: str = "utf-8",
     validator: None = ...,
     allow_comments: bool = False,
-) -> FrozenSet[str]: ...
+) -> frozenset[str]: ...
 @overload
 def load_config(
     file: str | os.PathLike[str],
     mode: Literal["validated_dict"] = "validated_dict",
     *,
-    base_dir: Optional[Path] = None,
+    base_dir: Path | None = None,
     encoding: str = "utf-8",
-    validator: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = ...,
+    validator: Callable[[dict[str, Any]], dict[str, Any]] | None = ...,
     allow_comments: bool = False,
-) -> Dict[str, Any]: ...
+) -> dict[str, Any]: ...
 
 
 def load_config(
     file: str | os.PathLike[str],
     mode: Mode = "raw",
     *,
-    base_dir: Optional[Path] = None,
+    base_dir: Path | None = None,
     encoding: str = "utf-8",
-    validator: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
+    validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     allow_comments: bool = False,
 ) -> Any:
-    """
-    Does: Load <data>/<file>.json, parse JSON, coerce by mode, cache results (skips cache if validator provided).
-    Args: file (w/ or w/o .json), mode ∈ {'raw','set','validated_dict'}, optional base_dir/encoding/validator/allow_comments.
-    Returns: Raw JSON (raw), frozenset[str] (set), or dict[str,Any] (validated_dict).
-    Raises: DataDirNotFound, ConfigFileNotFound, ConfigParseError, ConfigTypeError, ValueError.
-    """
+    """Load <data>/<file>.json, parse, coerce by mode, and cache results."""
     # Resolve base directory: env override > explicit > discovery
     if base_dir is None:
-        env_dir = os.environ.get("DATA_DIR")
-        if env_dir:
-            base_dir = Path(os.path.expanduser(env_dir))
+        env_dir = _env_data_dir()
+        base_dir = env_dir or _default_data_dir()
 
-    data_dir = (base_dir or _default_data_dir()).resolve()
+    data_dir = base_dir.resolve()
 
     # Normalize file path and enforce staying under data_dir
     file_str = os.fspath(file)
@@ -155,7 +165,13 @@ def load_config(
     if not path.is_file():
         raise ConfigFileNotFound(f"Config file not found: {path}")
 
-    cache_key = (path, mode, encoding, validator is not None)
+    # mtime-based cache key for auto-invalidation when file changes
+    try:
+        mtime = path.stat().st_mtime
+    except OSError as e:
+        raise ConfigFileNotFound(f"Cannot stat {path}: {e}") from e
+
+    cache_key = (path, mtime, mode, encoding, allow_comments, validator is not None)
 
     # Cache hit (only when no validator is used, because validator may change output)
     with _CACHE_LOCK:
@@ -165,15 +181,13 @@ def load_config(
 
     # Read & parse
     try:
-        with path.open("r", encoding=encoding, errors="strict", newline="", buffering=1) as f:
+        with path.open("r", encoding=encoding, errors="strict", newline="") as f:
             if allow_comments:
-                # Optional json5 support without hard dependency
-                try:
-                    import json5  # type: ignore
-                    data = json5.load(f)  # allows comments/trailing commas
-                except Exception:
-                    f.seek(0)
-                    data = json.load(f)  # fallback to std json
+                if _json5 is None:
+                    raise ConfigParseError(
+                        "json5 requested (allow_comments=True) but not installed"
+                    )
+                data = _json5.load(f)  # allows comments/trailing commas
             else:
                 data = json.load(f)
     except json.JSONDecodeError as e:
@@ -190,7 +204,9 @@ def load_config(
             raise ConfigTypeError(
                 f"{path.name}: expected list for mode 'set', got {type(data).__name__}"
             )
-        non_scalars = [x for x in data if not isinstance(x, (str, int, float, bool)) and x is not None]
+        non_scalars = [
+            x for x in data if not isinstance(x, (str, int, float, bool)) and x is not None
+        ]
         if non_scalars:
             preview = ", ".join(f"{type(x).__name__}" for x in non_scalars[:3])
             raise ConfigTypeError(
@@ -223,3 +239,30 @@ def load_config(
         log.debug("Config loaded (validator present, not cached): %s (mode=%s)", path.name, mode)
 
     return result
+
+
+# ── Context manager to temporarily override the data directory ───────────────
+class temp_data_dir:
+    """Temporarily set the data directory via env for the block."""
+
+    def __init__(self, path: os.PathLike[str] | str):
+        self._new = str(path)
+        self._old: str | None = None
+
+    def __enter__(self) -> temp_data_dir:
+        self._old = os.environ.get("DATA_DIR")
+        os.environ["DATA_DIR"] = self._new
+        clear_config_cache()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        if self._old is None:
+            os.environ.pop("DATA_DIR", None)
+        else:
+            os.environ["DATA_DIR"] = self._old
+        clear_config_cache()

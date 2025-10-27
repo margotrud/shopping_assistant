@@ -45,7 +45,10 @@ def __getattr__(name: str):
             build_tone_modifier_mappings as _btmm,
             format_tone_modifier_mappings as _ftmm,
         )
-        return {"build_tone_modifier_mappings": _btmm, "format_tone_modifier_mappings": _ftmm}[name]
+        return {
+            "build_tone_modifier_mappings": _btmm,
+            "format_tone_modifier_mappings": _ftmm,
+        }[name]
 
     # pipelines (loaded on demand only)
     if name in (
@@ -102,6 +105,6 @@ __all__ = [
     "get_rgb_from_descriptive_color_llm_first",
     "resolve_rgb_with_llm",
     "process_color_phrase",
-]  # type: ignore  # exposed dynamically via __getattr__
+]
 
 __docformat__ = "google"

@@ -38,9 +38,6 @@ from color_sentiment_extractor.extraction.color.vocab import get_all_webcolor_na
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 
 
-
-
-
 # =============================================================================
 # 1) CORE DISTANCES
 # =============================================================================
@@ -135,11 +132,11 @@ def _get_named_color_map() -> Dict[str, RGB]:
     # but store a nice readable key with spaces for downstream fuzzy use.
     for css_name, hx in CSS4_COLORS.items():
         pretty = normalize_token(css_name).replace("-", " ")
-        named[pretty] = tuple(hex_to_rgb(hx))  # type: ignore
+        named[pretty] = tuple(hex_to_rgb(hx))
     # XKCD: keys like 'xkcd:acid green'
     for xkcd_name, hx in XKCD_COLORS.items():
         key = normalize_token(xkcd_name.replace("xkcd:", "")).replace("-", " ")
-        named.setdefault(key, tuple(hex_to_rgb(hx)))  # type: ignore
+        named.setdefault(key, tuple(hex_to_rgb(hx)))
     return named
 
 
@@ -203,14 +200,14 @@ def _try_simplified_match(name: str, debug: bool = False) -> Optional[RGB]:
         hx = CSS4_COLORS[css_key]
         if debug:
             print(f"[🎨 CSS4 MATCH] '{css_key}' → {hx}")
-        return tuple(hex_to_rgb(hx))  # type: ignore
+        return tuple(hex_to_rgb(hx))
 
     xkcd_key = f"xkcd:{key_spaces}"
     if xkcd_key in XKCD_COLORS:
         hx = XKCD_COLORS[xkcd_key]
         if debug:
             print(f"[🎨 XKCD MATCH] '{xkcd_key}' → {hx}")
-        return tuple(hex_to_rgb(hx))  # type: ignore
+        return tuple(hex_to_rgb(hx))
 
     if debug:
         print(f"[🕵️‍♀️ NOT FOUND] '{name}' not in XKCD or CSS4")

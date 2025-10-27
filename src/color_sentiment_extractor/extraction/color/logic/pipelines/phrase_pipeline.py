@@ -13,14 +13,23 @@ from __future__ import annotations
 import logging
 import re
 from functools import lru_cache
-from typing import Dict, List, Optional, Protocol, Set, Tuple
+from typing import (
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Set,
+    Tuple,
+    runtime_checkable,
+    cast,
+)
 
 import spacy
 from spacy.language import Language
 
 # Prefer rapidfuzz; fallback to fuzzywuzzy.
 try:
-    from rapidfuzz import fuzz as _fuzz  # type: ignore
+    from rapidfuzz import fuzz as _fuzz
     ratio = _fuzz.ratio
 except Exception:  # pragma: no cover
     from fuzzywuzzy import fuzz as _fuzz  # type: ignore
@@ -35,14 +44,26 @@ from color_sentiment_extractor.extraction.color.strategies import (
 )
 from color_sentiment_extractor.extraction.general.token import recover_base
 
+# import the canonical LLM protocol used across the project
+from color_sentiment_extractor.extraction.llm.types import (
+    LLMClientProto as CoreLLMClientProto,
+)
+
 # ── Types & Globals ───────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
 RGB = tuple[int, int, int]
 
 
-class LLMClient(Protocol):
+@runtime_checkable
+class LLMClientProto(Protocol):
+    """
+    Structural contract for any LLM client we pass around.
+    We only assume: given a phrase, it can maybe return an RGB tuple.
+    """
     def query_rgb(self, phrase: str) -> Optional[RGB]: ...
+    # If rgb_pipeline.process_color_phrase actually calls a different method,
+    # update this Protocol to match that method signature.
 
 
 @lru_cache(maxsize=1)
@@ -70,7 +91,7 @@ def extract_all_descriptive_color_phrases(
     known_modifiers: Set[str],
     all_webcolor_names: Set[str],
     expression_map: dict,
-    llm_client: Optional[LLMClient] = None,
+    llm_client: Optional[LLMClientProto] = None,
     nlp: Optional[Language] = None,
     debug: bool = False,
 ) -> List[str]:
@@ -120,7 +141,7 @@ def extract_phrases_from_segment(
     known_tones: Set[str],
     all_webcolor_names: Set[str],
     expression_map: dict,
-    llm_client: Optional[LLMClient] = None,
+    llm_client: Optional[LLMClientProto] = None,
     cache=None,
     nlp: Optional[Language] = None,
     debug: bool = False,
@@ -182,6 +203,7 @@ def extract_phrases_from_segment(
             )
             if (
                 base in known_tones
+                and base is not None
                 and is_high_confidence(tokens[0], base)
                 and not _blocked(tokens[0], base)
                 and tokens[0] == base
@@ -215,11 +237,15 @@ def extract_phrases_from_segment(
                     base2,
                 )
 
-            if (
+            paired = (
                 valid_roles
+                and base1 is not None
+                and base2 is not None
                 and is_high_confidence(tokens[0], base1)
                 and is_high_confidence(tokens[1], base2)
-            ):
+            )
+
+            if paired:
                 valid_results.add(phrase)
 
     # Filter 1: remove phrases ending with cosmetic nouns
@@ -243,7 +269,7 @@ def process_segment_colors(
     color_phrases: List[str],
     known_modifiers: Set[str],
     known_tones: Set[str],
-    llm_client: Optional[LLMClient] = None,
+    llm_client: Optional[LLMClientProto] = None,
     cache=None,
     debug: bool = False,
 ) -> Tuple[List[str], List[Optional[RGB]]]:
@@ -257,17 +283,22 @@ def process_segment_colors(
 
     for phrase in color_phrases:
         try:
+            # NOTE: we pass llm_client directly, no cast(object, ...)
+            # If process_color_phrase expects the core LLM proto,
+            # we just cast to that proto instead of 'object'.
             simple, rgb = process_color_phrase(
                 phrase,
                 known_modifiers,
                 known_tones,
-                llm_client=llm_client,
+                llm_client=cast(CoreLLMClientProto | None, llm_client),
                 cache=cache,
                 debug=debug,
             )
         except Exception as e:  # pragma: no cover
             if debug:
-                logger.exception("[phrase_pipeline][process_color_phrase ERROR] %r: %s", phrase, e)
+                logger.exception(
+                    "[phrase_pipeline][process_color_phrase ERROR] %r: %s", phrase, e
+                )
             simple, rgb = "", None
 
         if not simple:
@@ -290,7 +321,7 @@ def aggregate_color_phrase_results(
     known_tones: Set[str],
     all_webcolor_names: Set[str],
     expression_map: dict,
-    llm_client: Optional[LLMClient] = None,
+    llm_client: Optional[LLMClientProto] = None,
     cache=None,
     nlp: Optional[Language] = None,
     debug: bool = False,
@@ -300,6 +331,7 @@ def aggregate_color_phrase_results(
     Returns: (tone set, all simplified phrases, phrase→RGB dict).
     Used By: downstream color/sentiment aggregation.
     """
+
     def tokenize(text: str) -> List[str]:
         return [t for t in re.split(r"[^\w\-]+", text.lower()) if t]
 
@@ -360,8 +392,11 @@ def aggregate_color_phrase_results(
         )
 
         for original, simple, rgb in zip(sorted(color_phrases), simplified, rgb_list):
+            # Guard: if LLM "simplified" a known tone into something else, keep original tone
             if simple != original and original in known_tones:
                 simple = original
+
+            # Guard: if simplifier changed a non-tone token, drop the RGB (unsafe hallucination)
             if simple != original and original not in known_tones:
                 rgb = None
 

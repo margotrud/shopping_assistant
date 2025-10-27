@@ -1,6 +1,8 @@
 # src/color_sentiment_extractor/extraction/color/suffix/rules.py
 from __future__ import annotations
 
+from importlib import import_module
+
 """
 suffix.rules
 ============
@@ -15,7 +17,7 @@ Notes importantes:
 """
 
 from functools import lru_cache
-from typing import Optional, Set
+from typing import Optional, Set, AbstractSet, FrozenSet, cast
 import logging
 
 # ── Public surface ───────────────────────────────────────────────────────────
@@ -39,13 +41,12 @@ from color_sentiment_extractor.extraction.color.constants import (
     RECOVER_BASE_OVERRIDES,
 )
 
-# Optionnel: EY_SUFFIX_ALLOWLIST peut ne pas exister dans constants.
-# On fournit un fallback neutre (ensemble vide) pour rester import-safe.
-try:  # ImportError si la constante est absente
-    from color_sentiment_extractor.extraction.color.constants import EY_SUFFIX_ALLOWLIST  # type: ignore
-except ImportError:
-    EY_SUFFIX_ALLOWLIST = frozenset()  # type: ignore[assignment]
-
+# EY_SUFFIX_ALLOWLIST est optionnel: on bind une seule fois le nom public.
+_constants = import_module("color_sentiment_extractor.extraction.color.constants")
+EY_SUFFIX_ALLOWLIST: FrozenSet[str] = cast(
+    FrozenSet[str],
+    getattr(_constants, "EY_SUFFIX_ALLOWLIST", frozenset()),
+)
 # ─────────────────────────────────────────────────────────────────────────────
 # Heuristics / small tables
 # ─────────────────────────────────────────────────────────────────────────────
@@ -145,10 +146,11 @@ def _apply_reverse_override(base: str, token: str, debug: bool = False) -> str:
     return out
 
 
+
 def _collapse_repeated_consonant(
     base: str,
-    known_modifiers: Set[str],
-    known_tones: Set[str],
+    known_modifiers: AbstractSet[str],
+    known_tones: AbstractSet[str],
     debug: bool = False,
 ) -> str:
     """Does: Collapse doubled final consonant if collapsed form exists in known sets. Returns: str."""

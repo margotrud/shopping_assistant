@@ -12,7 +12,8 @@ Used by: General fuzzy matching across color/expression/token pipelines.
 
 import logging
 import re
-from typing import Iterable, Optional, Set
+from typing import Optional, Callable
+from collections.abc import Iterable, Set as AbcSet
 
 from rapidfuzz import fuzz  # performant, no numpy dependency
 
@@ -58,6 +59,7 @@ def _norm_token(text: str, *, keep_hyphens: bool = False) -> str:
             t = t.replace("-", " ")
         t = t.replace("_", " ")
         return " ".join(t.split())
+
 
 def collapse_duplicates(s: str) -> str:
     """
@@ -129,7 +131,6 @@ def _in_conflict_groups(a: str, b: str, groups: Optional[Iterable]) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # 1) FUZZY SIMILARITY MATCHING
 # ─────────────────────────────────────────────────────────────────────────────
-
 def fuzzy_token_match(a: str, b: str) -> float:
     """
     Does: Return 100 for exact/derivational/edit-like matches; else project fuzzy score.
@@ -138,8 +139,9 @@ def fuzzy_token_match(a: str, b: str) -> float:
     # Lazy import to avoid circulars on module import
     try:
         from color_sentiment_extractor.extraction.general.token.base_recovery import (
-            recover_base as _recover_base,
+            recover_base as _imported_recover_base,  # noqa: N816
         )
+        _recover_base: Optional[Callable[..., Optional[str]]] = _imported_recover_base
     except Exception:
         _recover_base = None
 
@@ -150,8 +152,8 @@ def fuzzy_token_match(a: str, b: str) -> float:
         return 100.0
 
     # Base recovery (no fuzzy) — centralizes suffix logic in recover_base
-    base_a = _recover_base(a, allow_fuzzy=False) if _recover_base else None
-    base_b = _recover_base(b, allow_fuzzy=False) if _recover_base else None
+    base_a = _recover_base(a, allow_fuzzy=False) if _recover_base is not None else None
+    base_b = _recover_base(b, allow_fuzzy=False) if _recover_base is not None else None
     if base_a == b or base_b == a or (base_a and base_b and base_a == base_b):
         return 100.0
 
@@ -202,10 +204,9 @@ def is_exact_match(a: str, b: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 # 2) SAFE BEST-MATCH AGAINST VOCAB
 # ─────────────────────────────────────────────────────────────────────────────
-
 def fuzzy_match_token_safe(
     raw_token: str,
-    known_tokens: Set[str],
+    known_tokens: AbcSet[str],
     threshold: int = STRONG_THRESHOLD,
     debug: bool = False,
 ) -> Optional[str]:
@@ -216,8 +217,9 @@ def fuzzy_match_token_safe(
     # Lazy import
     try:
         from color_sentiment_extractor.extraction.general.token.base_recovery import (
-            recover_base as _recover_base,
+            recover_base as _imported_recover_base,  # noqa: N816
         )
+        _recover_base: Optional[Callable[..., Optional[str]]] = _imported_recover_base
     except Exception:
         _recover_base = None
 
@@ -228,7 +230,8 @@ def fuzzy_match_token_safe(
     if not raw:
         return None
 
-    best_match, best_score = None, 0
+    best_match: Optional[str] = None
+    best_score: float = 0.0
 
     if debug:
         log.debug("[INPUT] raw_token=%r → norm=%r (|known|=%d)", raw_token, raw, len(known_tokens))
@@ -291,9 +294,9 @@ def fuzzy_match_token_safe(
                 log.debug("[NORM] %r ≡ %r", raw, candidate)
             return candidate
 
-        # 7) track best fuzzy (token_sort is robust to order/spacing)
+        # 7) track best fuzzy (token_sort est robuste à l’ordre/espaces)
         try:
-            score = fuzz.token_sort_ratio(raw, cand)
+            score = float(fuzz.token_sort_ratio(raw, cand))
         except Exception as e:
             if debug:
                 log.debug("[FUZZ ERROR] %r vs %r: %s", raw, cand, e)
@@ -302,13 +305,13 @@ def fuzzy_match_token_safe(
         if score > best_score:
             best_score, best_match = score, candidate
         if debug and score >= threshold:
-            log.debug("[FUZZY≥%d] %r vs %r = %d", threshold, raw, cand, score)
+            log.debug("[FUZZY≥%d] %r vs %r = %s", threshold, raw, cand, score)
 
     # 8) centralized base recovery (suffixes, overrides, optional fuzzy)
-    base = _recover_base(raw, allow_fuzzy=False) if _recover_base else None
+    base = _recover_base(raw, allow_fuzzy=False) if _recover_base is not None else None
     if base and isinstance(base, str) and base in known_tokens:
         if debug:
             log.debug("[BASE] %r → %r", raw, base)
         return base
 
-    return best_match if best_score >= threshold else None
+    return best_match if best_score >= float(threshold) else None

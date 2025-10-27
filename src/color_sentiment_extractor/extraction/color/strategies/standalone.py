@@ -4,12 +4,14 @@ from __future__ import annotations
 """
 standalone.py
 
-Does: Extract standalone color terms (tones/modifiers) using strict token matching plus expression-based modifier injection, with rule/LLM filtering and final merge.
-Returns: set[str] of normalized standalone terms; helpers for tone-only extraction and safe injection/capping.
+Does: Extract standalone color terms (tones/modifiers) using strict token matching plus
+      expression-based modifier injection, with rule/LLM filtering and final merge.
+Returns: set[str] of normalized standalone terms; helpers for tone-only extraction and
+         safe injection/capping.
 Used by: Color phrase extraction pipelines; pre-compound enrichment and downstream RGB routing.
 """
 
-from typing import Iterable, List, Set, Dict, Optional
+from typing import Iterable, List, Set, Dict, Optional, cast
 import logging
 
 from spacy.tokens import Token
@@ -27,8 +29,11 @@ log = logging.getLogger(__name__)
 # ── Domain imports ───────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color.constants import COSMETIC_NOUNS
 from color_sentiment_extractor.extraction.color.recovery import _extract_filtered_tokens
-from color_sentiment_extractor.extraction.general.expression.expression_helpers import _inject_expression_modifiers
+from color_sentiment_extractor.extraction.general.expression.expression_helpers import (
+    _inject_expression_modifiers,
+)
 from color_sentiment_extractor.extraction.general.token import normalize_token
+from color_sentiment_extractor.extraction.general.types import TokenLike
 
 
 # ──────────────────────────────────────────────────────────────
@@ -138,22 +143,38 @@ def extract_standalone_phrases(
       3) Final union.
     """
     # always materialize iterable → avoids consuming generators
-    tokens = list(tokens)
+    tokens_list: List[Token] = list(tokens)
 
     if debug:
         log.debug("=" * 70)
         log.debug("🎯 ENTER extract_standalone_phrases()")
         log.debug("=" * 70)
         # Avoid dumping full token details in production logs
-        log.debug("[📚 STATS] #TOKENS=%d | #MODIFIERS=%d | #TONES=%d",
-                  sum(1 for _ in tokens), len(known_modifiers), len(known_tones))
+        log.debug(
+            "[📚 STATS] #TOKENS=%d | #MODIFIERS=%d | #TONES=%d",
+            len(tokens_list),
+            len(known_modifiers),
+            len(known_tones),
+        )
 
     # 1) Expression-based modifier injection (gated + capped)
-    injected_raw: List[str] = _inject_expression_modifiers(
-        tokens, known_modifiers, known_tones, expression_map, debug=debug
+    # _inject_expression_modifiers expects Dict[str, Dict[str, List[str]]] | None
+    typed_expression_map: Dict[str, Dict[str, List[str]]] | None = (
+        {alias: {"_": mods} for alias, mods in expression_map.items()}
+        if expression_map is not None
+        else None
     )
+
+    injected_raw: List[str] = _inject_expression_modifiers(
+        tokens_list,
+        known_modifiers,
+        known_tones,
+        typed_expression_map,
+        debug=debug,
+    )
+
     gated_injected: List[str] = _gate_and_cap_injection(
-        tokens=tokens,
+        tokens=tokens_list,
         expression_map=expression_map,
         known_modifiers=known_modifiers,
         injected=injected_raw,
@@ -161,19 +182,33 @@ def extract_standalone_phrases(
         debug=debug,
     )
     if debug:
-        log.debug("[🧬 EXPRESSION INJECTION] kept=%s (total=%d)",
-                  sorted(gated_injected), len(gated_injected))
+        log.debug(
+            "[🧬 EXPRESSION INJECTION] kept=%s (total=%d)",
+            sorted(gated_injected),
+            len(gated_injected),
+        )
 
     # 2) Rule + LLM fallback filtering
     filtered_terms: Set[str] = _extract_filtered_tokens(
-        tokens, known_modifiers, known_tones, llm_client, debug=debug
+        cast(Iterable[TokenLike], tokens_list),
+        known_modifiers,
+        known_tones,
+        llm_client,
+        debug=debug,
     )
     if debug:
-        log.debug("[🧠 RULE + LLM FILTERED] kept=%s (total=%d)",
-                  sorted(filtered_terms), len(filtered_terms))
+        log.debug(
+            "[🧠 RULE + LLM FILTERED] kept=%s (total=%d)",
+            sorted(filtered_terms),
+            len(filtered_terms),
+        )
 
     # 3) Final combination + cleanup
-    final: Set[str] = _finalize_standalone_phrases(gated_injected, filtered_terms, debug=debug)
+    final: Set[str] = _finalize_standalone_phrases(
+        gated_injected,
+        filtered_terms,
+        debug=debug,
+    )
     if debug:
         log.debug("[🏁 FINAL STANDALONE PHRASES] total=%d", len(final))
 

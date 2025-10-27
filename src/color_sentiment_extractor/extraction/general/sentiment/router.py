@@ -14,7 +14,16 @@ Outputs:
 - threshold: RGB margin for inclusion
 """
 
-from typing import List, Set, Tuple, Dict, Optional, Mapping, TypedDict, Iterable, Callable
+from typing import (
+    List,
+    Set,
+    Tuple,
+    Dict,
+    Optional,
+    Mapping,
+    TypedDict,
+    Iterable,
+)
 from statistics import median
 import os
 import logging
@@ -35,10 +44,12 @@ logger = logging.getLogger(__name__)
 # ── Types ────────────────────────────────────────────────────────────────────
 RGB = Tuple[int, int, int]
 
+
 class ColorSentimentSummary(TypedDict):
     matched_color_names: List[str]
     base_rgb: Optional[RGB]
     threshold: float
+
 
 # ── ENV Config (tunable without code change) ─────────────────────────────────
 def _env_float(name: str, default: float) -> float:
@@ -47,9 +58,11 @@ def _env_float(name: str, default: float) -> float:
     except Exception:
         return default
 
+
 RGB_THRESHOLD_DEFAULT: float = _env_float("RGB_THRESHOLD_DEFAULT", 60.0)
 RGB_THRESHOLD_MIN: float = _env_float("RGB_THRESHOLD_MIN", 35.0)
 RGB_THRESHOLD_MAX: float = _env_float("RGB_THRESHOLD_MAX", 75.0)
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
@@ -57,7 +70,7 @@ def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
     Case-insensitive, whitespace-trimmed, duplicate-free ordering.
     Dedup is done with casefold(); original casing of first occurrence is preserved.
     """
-    canon: dict[str, str] = {}
+    canon: Dict[str, str] = {}
     for s in items:
         if not s:
             continue
@@ -69,6 +82,7 @@ def _stable_sorted_phrases(items: Iterable[str]) -> List[str]:
         canon.setdefault(key, t)
     # sort by case-insensitive key to keep deterministic order
     return [canon[k] for k in sorted(canon.keys())]
+
 
 def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> float:
     """
@@ -92,12 +106,14 @@ def _estimate_threshold(base_rgb: Optional[RGB], rgb_map: Mapping[str, RGB]) -> 
     med = median(distances)
     return max(RGB_THRESHOLD_MIN, min(RGB_THRESHOLD_MAX, med))
 
+
 # ── Public API ────────────────────────────────────────────────────────────────
 def build_color_sentiment_summary(
     sentiment: str,
     segments: List[str],
     known_tones: Set[str],
     known_modifiers: Set[str],
+    expression_map: Dict[str, Dict[str, List[str]]],
     rgb_map: Dict[str, RGB],
     base_rgb_by_sentiment: Dict[str, Optional[RGB]],
     *,
@@ -111,6 +127,7 @@ def build_color_sentiment_summary(
         segments: All related user utterances or queries.
         known_tones: Tone vocabulary.
         known_modifiers: Modifier vocabulary.
+        expression_map: Canonical expression/alias map used by phrase aggregation.
         rgb_map: Cache of known phrase → RGB mappings (will be updated in-place).
         base_rgb_by_sentiment: Storage for selected base RGB per sentiment (updated in-place).
         debug: When True, also formats tone/modifier mappings for logs.
@@ -123,39 +140,53 @@ def build_color_sentiment_summary(
         }
     """
 
-    # Run phrase pipeline (materialize keys list to avoid view issues downstream)
+    # 1. Run phrase pipeline once for this sentiment cluster
     _matched_tones, matched_phrases, local_rgb_map = aggregate_color_phrase_results(
+        # NOTE: we switch to kwargs so mypy can check names+types
         segments=segments,
+        known_tones=known_tones,
         known_modifiers=known_modifiers,
-        all_webcolor_names=list(rgb_map.keys()),
+        expression_map=expression_map,
+        all_webcolor_names=set(rgb_map.keys()),  # must be a set[str] not list[str]
         llm_client=None,
         cache=None,
         debug=debug,
     )
 
-    # Update global RGB map defensively
+    # 2. Update global RGB map defensively with any new local discoveries
     if local_rgb_map:
         rgb_map.update(local_rgb_map)
 
+    # 3. Debug / logging helpers (optional, never break the flow)
     if debug:
         try:
-            # Optionally format for logs or downstream inspection (side-effect only)
-            format_tone_modifier_mappings(matched_phrases, known_tones, known_modifiers)
+            # format_tone_modifier_mappings is side-effect/logging only
+            format_tone_modifier_mappings(
+                matched_phrases,
+                known_tones,
+                known_modifiers,
+            )
         except Exception:
-            # Never let logging/introspection break the route
-            logger.debug("format_tone_modifier_mappings failed; continuing.", exc_info=True)
+            logger.debug(
+                "format_tone_modifier_mappings failed; continuing.",
+                exc_info=True,
+            )
 
-    # Choose base RGB from local extraction first; else keep prior for this sentiment
-    base_rgb: Optional[RGB] = choose_representative_rgb(local_rgb_map) if local_rgb_map else None
+    # 4. Derive / persist base color for this sentiment
+    # Prefer local extraction; else fall back to a previously chosen base.
+    base_rgb: Optional[RGB] = (
+        choose_representative_rgb(local_rgb_map) if local_rgb_map else None
+    )
     if base_rgb is None:
         base_rgb = base_rgb_by_sentiment.get(sentiment)
 
-    # Persist selection for this sentiment (can be None)
+    # Persist selection for this sentiment (can stay None)
     base_rgb_by_sentiment[sentiment] = base_rgb
 
-    # Derive a threshold from dispersion when possible; else fallback constant
+    # 5. Threshold ~ how far variants may drift from base_rgb in this cluster
     threshold = _estimate_threshold(base_rgb, local_rgb_map or {})
 
+    # 6. Stable output
     return ColorSentimentSummary(
         matched_color_names=_stable_sorted_phrases(matched_phrases),
         base_rgb=base_rgb,

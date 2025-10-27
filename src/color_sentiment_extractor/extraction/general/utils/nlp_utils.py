@@ -10,7 +10,7 @@ from functools import lru_cache
 from typing import Optional, Set, Iterable
 
 from nltk.corpus import wordnet
-from src.color_sentiment_extractor.extraction.general.token import normalize_token
+from color_sentiment_extractor.extraction.general.token import normalize_token
 
 __all__ = ["are_antonyms", "lemmatize_token"]
 
