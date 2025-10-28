@@ -1,40 +1,45 @@
 # Color Sentiment Extractor 🎨🧠
 
 <p align="left">
-  <!-- CI badge -->
   <a href="https://github.com/margotrud/shopping_assistant/actions/workflows/ci.yml">
     <img src="https://github.com/margotrud/shopping_assistant/actions/workflows/ci.yml/badge.svg" alt="CI status">
   </a>
-  <!-- Coverage (Codecov) -->
   <a href="https://codecov.io/gh/margotrud/shopping_assistant">
     <img src="https://img.shields.io/codecov/c/github/margotrud/shopping_assistant" alt="Codecov">
   </a>
-  <!-- Python versions -->
   <img src="https://img.shields.io/badge/Python-3.10%20|%203.11%20|%203.12-blue" alt="Python versions">
-  <!-- License -->
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
 </p>
 
-_Imagine a shopping assistant that understands how you feel about colors._  
-_You tell it: “I love red lipstick, but not too shiny or too purple — I prefer deeper, muted shades like raspberry or bordeaux.”_  
-_The system then interprets your preferences and suggests matching products available in stock._  
+---
 
-💄 This project builds the **foundation for that vision**:  
-it extracts **color names, modifiers, and sentiments** from text,  
-and maps them to **RGB tones** to understand user aesthetics at scale.
+### 🛍️ Overview
+
+_Imagine a shopping assistant that understands how you feel about colors._  
+_You tell it: “I love red lipstick, but not too shiny or too purple — I prefer deeper, muted tones like raspberry or bordeaux.”_  
+_The system interprets your preferences and suggests matching products in stock._
+
+💡 **This project builds the foundation for that vision:**  
+it extracts **color names**, **modifiers**, and **sentiments** from text,  
+then maps them to **RGB tones** to interpret aesthetic preferences.
 
 > 🧩 **Note**  
-> This repository is the **first functional module** of a larger *Shopping Assistant* NLP project.  
-> It focuses on **color sentiment extraction**, a core capability that will later integrate into  
-> product description analysis, style classification, and emotional search pipelines.
+> This repository is the **first functional module** of a larger *Shopping Assistant* NLP system.  
+> It focuses on **color sentiment extraction**, which will later integrate into  
+> product description parsing, style classification, and emotional search pipelines.
 
 Given text like _“I love bright red but I hate purple”_,  
 the extractor identifies positive and negative color tones and resolves them to RGB.
 
-This project was also an opportunity to explore Natural Language Processing - a domain I
-wanted to understand more deeply beyond classical data science. I built it as a 
-self-learning challenge to strenghten my skills in text parsing, linguistic logic, and 
-LLM-based reasoning. 
+---
+
+### 🎓 Learning Focus
+
+This project was also a way to **deepen my understanding of Natural Language Processing**,  
+beyond classical data science.  
+It serves as a **self-learning challenge** to strengthen my skills in  
+**text parsing, linguistic logic, and LLM-based reasoning**.
+
 ---
 
 ## 🚀 Quick Start
