@@ -33,6 +33,7 @@ from .rgb_pipeline import process_color_phrase
 # ── Fuzzy matching setup (rapidfuzz → fallback fuzzywuzzy) ────────────────────
 class _RatioFn(Protocol):
     def __call__(self, a: str, b: str, /) -> int: ...
+
     # both rapidfuzz.fuzz.ratio and fuzzywuzzy.fuzz.ratio behave like this
 
 
