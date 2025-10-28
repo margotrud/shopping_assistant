@@ -18,7 +18,7 @@ import re
 import time
 from typing import Protocol
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from color_sentiment_extractor.extraction.color.utils import _parse_rgb_tuple
 

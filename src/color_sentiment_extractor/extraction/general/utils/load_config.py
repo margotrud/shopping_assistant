@@ -18,16 +18,18 @@ import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from types import TracebackType
-from typing import Any, Literal, overload
+from types import ModuleType, TracebackType
+from typing import Any, Literal, Optional, overload
 
 # --- optional json5 support (no hard dependency) -----------------------------
+# We want: _JSON5: ModuleType | None
+# So mypy doesn't complain when json5 is missing.
+_JSON5: Optional[ModuleType]
 try:
-    # json5 may not be installed in all environments (incl. CI),
-    # so we try to import it but we don't require it.
-    import json5 as _json5  # noqa: F401
+    import json5 as _imported_json5
+    _JSON5 = _imported_json5
 except Exception:  # pragma: no cover - only hit when json5 missing
-    _json5 = None  # noqa: F841
+    _JSON5 = None
 
 # ── Public surface ────────────────────────────────────────────────────────────
 Mode = Literal["raw", "set", "validated_dict"]
@@ -126,11 +128,11 @@ def _read_and_parse_json(
     try:
         with path.open("r", encoding=encoding, errors="strict", newline="") as f:
             if allow_comments:
-                if _json5 is None:
+                if _JSON5 is None:
                     raise ConfigParseError(
                         "json5 requested (allow_comments=True) but not installed"
                     )
-                data = _json5.load(f)  # allows comments/trailing commas
+                data = _JSON5.load(f)  # allows comments/trailing commas
             else:
                 data = json.load(f)
     except json.JSONDecodeError as e:
