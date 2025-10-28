@@ -19,7 +19,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, TracebackType
-from typing import Any, Literal, Optional, overload
+from typing import Any, Literal, overload
 
 # --- optional json5 support (no hard dependency) -----------------------------
 # We want: _JSON5: ModuleType | None
