@@ -14,20 +14,24 @@ from __future__ import annotations
 import logging
 import re
 from functools import lru_cache
+from typing import Protocol
 
 import spacy
 from spacy.language import Language
 
-# Prefer rapidfuzz; fallback to fuzzywuzzy.
+# ── Fuzzy matching setup (rapidfuzz → fallback fuzzywuzzy) ────────────────────
+class _RatioFn(Protocol):
+    def __call__(self, a: str, b: str, /) -> int: ...
+    # both rapidfuzz.fuzz.ratio and fuzzywuzzy.fuzz.ratio behave like this
+
 try:
-    from rapidfuzz import fuzz as _fuzz
-
-    ratio = _fuzz.ratio
+    from rapidfuzz import fuzz as _fuzz  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover
-    from fuzzywuzzy import fuzz as _fuzz  # type: ignore
+    from fuzzywuzzy import fuzz as _fuzz  # type: ignore[import-not-found]
 
-    ratio = _fuzz.ratio
+ratio: _RatioFn = _fuzz.ratio
 
+# ── Imports (local project) ───────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS, COSMETIC_NOUNS
 from color_sentiment_extractor.extraction.color.llm.types import LLMClientProtocol
 from color_sentiment_extractor.extraction.color.strategies import (
@@ -36,12 +40,10 @@ from color_sentiment_extractor.extraction.color.strategies import (
     extract_standalone_phrases,
 )
 from color_sentiment_extractor.extraction.general.token import recover_base
-
 from .rgb_pipeline import process_color_phrase
 
 # ── Types & Globals ───────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
-
 RGB = tuple[int, int, int]
 
 

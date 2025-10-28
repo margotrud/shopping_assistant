@@ -18,14 +18,16 @@ import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import Any, Literal, overload
 
 # --- optional json5 support (no hard dependency) -----------------------------
-try:  # mypy: json5 may be missing in most envs
-    import json5 as _json5
+try:
+    # json5 may not be installed in all environments (incl. CI).
+    # We declare a union type so mypy is happy without "type: ignore[assignment]".
+    import json5 as _json5  # type: ignore[import-not-found]
 except Exception:  # pragma: no cover - only hit when json5 missing
-    _json5 = None  # type: ignore[assignment]
+    _json5 = None  # type: ModuleType | None
 
 # ── Public surface ────────────────────────────────────────────────────────────
 Mode = Literal["raw", "set", "validated_dict"]
@@ -237,7 +239,9 @@ def load_config(
                 f"{path.name}: expected list for mode 'set', got {type(data).__name__}"
             )
         non_scalars = [
-            x for x in data if not isinstance(x, (str, int, float, bool)) and x is not None
+            x
+            for x in data
+            if not isinstance(x, (str, int, float, bool)) and x is not None
         ]
         if non_scalars:
             preview = ", ".join(f"{type(x).__name__}" for x in non_scalars[:3])
