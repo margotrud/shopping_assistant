@@ -1,4 +1,10 @@
 # requirements.txt
+# Core NLP / fuzzy
+rapidfuzz>=3.0.0
+fuzzywuzzy>=0.18.0
+python-Levenshtein>=0.12.0
+rapidfuzz>=3.0.0
+
 
 # Core NLP / fuzzy
 fuzzywuzzy>=0.18.0
