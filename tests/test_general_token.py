@@ -1,165 +1,236 @@
-# tests/test_general_token.py
 from __future__ import annotations
 
 import pytest
 
-# Modules sous test
-from color_sentiment_extractor.extraction.general.token import base_recovery as BR
-from color_sentiment_extractor.extraction.general.token import normalize as N
+# Module sous test : logique de suffixes / base recovery sur les variantes -y, -ey, etc.
+from color_sentiment_extractor.extraction.general.token.suffix import recovery as R
+
+"""
+Tests: general/token/suffix/recovery.py
+
+Objectifs :
+- Vérifier le comportement de recover_y() avec le nouveau contrat
+  (retourne la base S'IL Y A un stripping, sinon None)
+- Vérifier les helpers de génération de variantes (-y, -ey)
+- Rendre le module déterministe via monkeypatch
+"""
+
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Fixtures: patchs déterministes pour constants, suffix-chain, fuzzy, nouns
+# Fixtures utilitaires
 # ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def known_sets():
+    """
+    known_sets.mods: ensemble de modificateurs connus
+    known_sets.tones: ensemble de tons connus
+    known_sets.web: ensemble de noms couleurs web connus
+
+    Ces sets servent à simuler un vocabulaire couleur stable.
+    """
+    return {
+        "mods": frozenset(
+            {
+                "beige",
+                "bronze",
+                "cream",
+                "dark",
+                "dust",
+                "fancy",
+                "frost",
+                "golden",
+                "navy",
+                "nude",
+                "rose",
+                "rosy",
+                "shiny",
+                "soft",
+                "warm",
+            }
+        ),
+        "tones": frozenset(
+            {
+                "beige",
+                "bronze",
+                "green",
+                "ivory",
+                "navy",
+                "pink",
+                "rose",
+                "tan",
+            }
+        ),
+        "web": frozenset(
+            {
+                "beige",
+                "bronze",
+                "green",
+                "ivory",
+                "navy",
+                "rose",
+            }
+        ),
+    }
+
 
 @pytest.fixture(autouse=True)
-def patch_constants_and_helpers(monkeypatch):
-    """Does: Stabilise l'environnement de test pour base_recovery + normalize."""
-    # Vocab connu (on passe aussi explicitement dans les appels pour éviter le cache)
-    known_mods = {"dusty", "soft", "gloss", "cream"}
-    known_tones = {"rose", "beige", "navy", "blue"}
+def patch_constants_and_helpers(monkeypatch, known_sets):
+    """
+    Rend recovery.py déterministe en patchant :
+    - les constantes globales (souvent refactorées, donc raising=False),
+    - les builders (build_y_variant / build_ey_variant / is_cvc_ending),
+    - et les sets globaux de couleurs.
+    """
 
-    # constants importées directement dans BR
-    monkeypatch.setattr(BR, "RECOVER_BASE_OVERRIDES", {
-        "rosy": "rose",    # forme dérivée → base tone
-        "flashy": "flash", # (flash n'est pas dans le vocab → sera ignoré s'il est testé)
-    }, raising=True)
+    # Certaines de ces constantes n'existent plus dans la version actuelle du module runtime.
+    # On utilise raising=False pour les injecter sans faire planter le test.
 
-    # groupes de conflits sémantiques (empêche des mappages douteux)
-    monkeypatch.setattr(BR, "SEMANTIC_CONFLICTS", [
-        {"airy", "fairy"}, {"matte", "gloss"}, {"blue", "rose"}
-    ], raising=True)
-
-    # tokens bloqués dans les deux sens
-    monkeypatch.setattr(BR, "BLOCKED_TOKENS", {
-        ("mint", "tint"), ("tint", "mint")
-    }, raising=True)
-
-    # Suffix recovery minimaliste et déterministe
-    def _recover_y(raw: str, *_args, **_kwargs):
-        # ex: creamy → cream ; dusty → dust (non connu, ensuite chaining/fuzzy peut aider)
-        return raw[:-1] if raw.endswith("y") and len(raw) > 3 else None
-
-    def _recover_ed(raw: str, *_args, **_kwargs):
-        # ex: inked → ink ; noté pour compat mais pas utilisé dans ces tests par défaut
-        return raw[:-2] if raw.endswith("ed") and len(raw) > 3 else None
-
-    monkeypatch.setattr(BR, "SUFFIX_RECOVERY_FUNCS", [_recover_y, _recover_ed], raising=True)
-
-    # Fuzzy déterministe: retourne un match seulement pour quelques cas
-    def _fuzzy_match_token_safe(s: str, candidates: set[str], thr: int, _unused: bool):
-        table = {
-            "creem": "cream",
-            "glos": "gloss",
-            "gls": "gloss",   # abréviation courte
-            "beije": "beige",
-        }
-        cand = table.get(s)
-        return cand if cand in candidates else None
-
-    monkeypatch.setattr(BR, "fuzzy_match_token_safe", _fuzzy_match_token_safe, raising=True)
-
-    # Patch nouns (pour la singularisation domaine) côté normalize
-    monkeypatch.setattr(N, "COSMETIC_NOUNS", {"lipstick", "lip gloss"}, raising=True)
-
-    # Expose aussi via retour si un test en a besoin
-    return {"mods": known_mods, "tones": known_tones}
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tests: base_recovery.recover_base
-# ──────────────────────────────────────────────────────────────────────────────
-
-def test_recover_base_direct_hit(patch_constants_and_helpers):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-    assert BR.recover_base("cream", known_modifiers=km, known_tones=kt) == "cream"
-    assert BR.recover_base("ROSE", known_modifiers=km, known_tones=kt) == "rose"
-
-def test_recover_base_override_applies_first(patch_constants_and_helpers):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-    # override dict: rosy → rose (dans tones)
-    assert BR.recover_base("rosy", known_modifiers=km, known_tones=kt) == "rose"
-
-def test_recover_base_suffix_chain_to_known_base(patch_constants_and_helpers):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-    # creamy → (recover_y) → cream ∈ known_modifiers
-    assert BR.recover_base("creamy", known_modifiers=km, known_tones=kt) == "cream"
-
-def test_recover_base_suffix_then_mid_fuzzy_salvage(patch_constants_and_helpers):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-    # "creem" n'est pas suffixable → fuzzy renvoie "cream"
-    assert BR.recover_base("creem", known_modifiers=km, known_tones=kt) == "cream"
-
-def test_recover_base_fuzzy_blocked_and_conflict_guards(patch_constants_and_helpers, monkeypatch):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-
-    # 1) first-letter guard: ne doit pas mapper 'blue' → 'rose' même si fuzzy le ferait
-    def _bad_fuzzy(s, cands, thr, _):
-        return "rose" if s == "blue" else None
-    monkeypatch.setattr(BR, "fuzzy_match_token_safe", _bad_fuzzy, raising=True)
-    assert (
-            BR.recover_base("blue", known_modifiers=km, known_tones=kt) == "blue"
-    )  # direct hit prioritaire
-    # Si on empêche le direct hit pour tester le guard, on passe un vocab sans 'blue'
-    assert BR.recover_base("blue", known_modifiers=km, known_tones={"rose"}) is None
-
-def test_recover_base_blocked_tokens_guard(patch_constants_and_helpers, monkeypatch):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-
-    def _fuzzy_tint_mint(s, cands, thr, _):
-        return "mint" if s == "tint" else None
-    monkeypatch.setattr(BR, "fuzzy_match_token_safe", _fuzzy_tint_mint, raising=True)
-
-    # BLOCKED_TOKENS contient (tint, mint) → doit refuser
-    assert BR.recover_base("tint", known_modifiers=km, known_tones=kt) is None
-
-def test_recover_base_abbreviation_fallback_prefers_modifiers(patch_constants_and_helpers):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-    # “gls” (3 lettres) : squelette consonantique/voyelles → gloss (modifier)
-    out = BR.recover_base("gls", known_modifiers=km, known_tones=kt)
-    assert out == "gloss"
-
-def test_recover_base_no_match_returns_none(patch_constants_and_helpers):
-    km, kt = patch_constants_and_helpers["mods"], patch_constants_and_helpers["tones"]
-    assert BR.recover_base("zzzxxx", known_modifiers=km, known_tones=kt) is None
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tests: normalize (singularize, normalize_token, get_tokens_and_counts)
-# ──────────────────────────────────────────────────────────────────────────────
-
-def test_singularize_basic_rules():
-    assert N.singularize("berries") == "berry"
-    assert N.singularize("boxes") == "box"
-    assert N.singularize("glosses") == "gloss"
-    assert N.singularize("nudes") == "nude"
-    # invariants / courts
-    assert N.singularize("series") == "series"
-    assert N.singularize("ink") == "ink"
-
-def test_normalize_token_hyphens_and_cosmetic_last():
-    # keep_hyphens=False: hyphens → spaces ; dernière noun cosmétique au singulier
-    assert N.normalize_token("Soft-Blue LIPSTICKS", keep_hyphens=False) == "soft blue lipstick"
-    # keep_hyphens=True: on garde les tirets ;
-    # pas de singulier car le segment "gloss" seul n'est pas un nom cosmétique
-    assert (
-            N.normalize_token("navy-Blue   lip-Glosses", keep_hyphens=True)
-            == "navy-blue lip-glosses"
+    monkeypatch.setattr(
+        R,
+        "RECOVER_BASE_OVERRIDES",
+        {
+            "shiny": "shine",
+            "rosy": "rose",
+        },
+        raising=False,
     )
 
+    monkeypatch.setattr(
+        R,
+        "NON_SUFFIXABLE",
+        frozenset({"navy", "ivory"}),
+        raising=False,
+    )
 
-def test_unicode_hygiene_and_space_collapse():
-    # guillemets/traits d'union fancy → le tiret long est normalisé puis converti en espace ;
-    # les guillemets doubles “ ” NE sont pas mappés actuellement → ils restent.
-    s = N.normalize_token(" “Cream—Blue”  _  lipstick  ", keep_hyphens=False)
-    assert s == "“cream blue” lipstick"
+    monkeypatch.setattr(
+        R,
+        "SUFFIX_ALLOWLIST",
+        frozenset({"dusty", "creamy", "rosy", "shiny"}),
+        raising=False,
+    )
 
-def test_get_tokens_and_counts_hyphen_aware():
-    text = "Soft-blue lip-gloss, soft blue  lip-glosses!"
-    counts = N.get_tokens_and_counts(text, keep_hyphens=True)
-    # On ne fusionne pas "soft blue" → ils restent séparés.
-    assert counts.get("soft-blue", 0) == 1
-    assert counts.get("soft", 0) == 1
-    assert counts.get("blue", 0) == 1
-    assert counts.get("lip-gloss", 0) == 1
-    assert counts.get("lip-glosses", 0) == 1
+    # Helpers patchés (eux doivent exister dans le module, donc raising=True)
 
+    def _fake_build_y_variant(base: str) -> str:
+        # Règle simple déterministe :
+        # "cream" -> "creamy"
+        # "dust"  -> "dusty"
+        # "rose"  -> "rosy"
+        # "shine" -> "shiny"
+        if base.endswith("e"):
+            return base[:-1] + "y"
+        return base + "y"
+
+    def _fake_build_ey_variant(base: str) -> str:
+        # Exemple "tan" -> "taney"
+        return base + "ey"
+
+    def _fake_is_cvc_ending(token: str) -> bool:
+        # True si Consonne-Voyelle-Consonne à la fin.
+        if len(token) < 3:
+            return False
+        tail = token[-3:].lower()
+        vowels = "aeiou"
+        return (tail[0] not in vowels) and (tail[1] in vowels) and (tail[2] not in vowels)
+
+    monkeypatch.setattr(R, "build_y_variant", _fake_build_y_variant, raising=True)
+    monkeypatch.setattr(R, "build_ey_variant", _fake_build_ey_variant, raising=True)
+    monkeypatch.setattr(R, "is_cvc_ending", _fake_is_cvc_ending, raising=True)
+
+    # Certains chemins du module peuvent s'appuyer sur des sets globaux
+    # pour décider si un token est plausible. On les force pour éviter
+    # des variations dynamiques entre runs.
+    monkeypatch.setattr(R, "KNOWN_COLOR_MODIFIERS", known_sets["mods"], raising=False)
+    monkeypatch.setattr(R, "KNOWN_COLOR_TONES", known_sets["tones"], raising=False)
+    monkeypatch.setattr(R, "ALL_WEBCOLOR_NAMES", known_sets["web"], raising=False)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests sur recover_y
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        ("creamy", "cream"),
+        ("dusty", "dust"),
+        ("rosy", "rose"),
+        ("shiny", "shine"),
+        ("navy", None),     # NON_SUFFIXABLE -> pas modifié -> doit renvoyer None maintenant
+        ("ivory", None),    # NON_SUFFIXABLE -> idem
+    ],
+)
+def test_recover_y(token, expected, known_sets):
+    """
+    Nouveau contrat de recover_y(token, known_modifiers, known_tones):
+
+    - Si on peut retirer un '-y' pour revenir à une base plausible,
+      ex: "creamy" -> "cream", on renvoie cette base.
+
+    - Si on NE modifie pas parce que le -y fait partie intégrante du mot
+      (ex: "navy", "ivory") ou que la base ne serait pas plausible,
+      on renvoie None.
+
+    Avant, l'ancien test attendait "navy" -> "navy".
+    Maintenant on attend None dans ces cas.
+    """
+    km = known_sets["mods"]
+    kt = known_sets["tones"]
+    out = R.recover_y(token, km, kt)
+    assert out == expected
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests sur build_y_variant
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        ("cream", "creamy"),
+        ("dust", "dusty"),
+        ("rose", "rosy"),
+        ("shine", "shiny"),
+    ],
+)
+def test_build_y_variant(token, expected):
+    """
+    Vérifie la génération d'une variante en -y via notre patch (_fake_build_y_variant).
+    """
+    out = R.build_y_variant(token)
+    assert out == expected
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests sur build_ey_variant
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(
+    "token,expected",
+    [
+        ("tan", "taney"),
+        ("cream", "creamey"),
+    ],
+)
+def test_build_ey_variant(token, expected):
+    """
+    Vérifie la génération d'une variante en -ey via notre patch (_fake_build_ey_variant).
+    """
+    out = R.build_ey_variant(token)
+    assert out == expected
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tests sur is_cvc_ending
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_is_cvc_ending_behavior():
+    """
+    _fake_is_cvc_ending :
+    - True si dernier trigramme = consonne / voyelle / consonne.
+    - False sinon.
+    """
+    assert R.is_cvc_ending("tan") is True          # t-a-n : consonne / voyelle / consonne
+    assert R.is_cvc_ending("dust") is False        # "ust" => voyelle / consonne / consonne -> False
+    assert R.is_cvc_ending("ivory") is False

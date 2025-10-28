@@ -12,6 +12,7 @@ Outputs:
 - base_rgb: Representative RGB triplet for this sentiment (or None)
 - threshold: RGB margin for inclusion
 """
+
 from __future__ import annotations
 
 import logging

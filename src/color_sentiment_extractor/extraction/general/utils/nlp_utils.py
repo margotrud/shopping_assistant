@@ -55,7 +55,6 @@ def are_antonyms(word1: str, word2: str) -> bool:
     """
     variants1, variants2 = list(_candidates(word1)), list(_candidates(word2))
     if not variants1 or not variants2:
-
         return False
     return any(v2 in _normalized_antonyms(v1) for v1 in variants1 for v2 in variants2) or any(
         v1 in _normalized_antonyms(v2) for v2 in variants2 for v1 in variants1
@@ -72,7 +71,6 @@ def _get_spacy():
     """
     global _nlp
     if _nlp is not None:
-
         return _nlp or None
     try:
         import spacy

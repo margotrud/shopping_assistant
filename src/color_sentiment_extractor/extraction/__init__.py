@@ -9,6 +9,7 @@ Does: Provide a compatibility alias so legacy imports like `from extraction.x im
 Returns: Registers the current module under the top-level name "extraction" if absent.
 Used by: Older scripts, notebooks, and external integrations.
 """
+
 from __future__ import annotations
 
 import sys as _sys

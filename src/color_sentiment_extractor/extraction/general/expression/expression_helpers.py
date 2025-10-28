@@ -65,6 +65,7 @@ _CONTEXT_MAP = load_config("expression_context_rules", mode="validated_dict")
 _EXPRESSION_MAP_NORM = load_config("expression_definition", mode="validated_dict")
 _EXPRESSION_MAP_RAW = load_config("expression_definition", mode="raw")
 
+
 # ── Local helpers ────────────────────────────────────────────────────────────
 def _norm(s):
     """Normalize token while keeping hyphens."""

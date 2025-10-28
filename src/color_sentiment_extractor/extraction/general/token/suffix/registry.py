@@ -7,6 +7,7 @@ Does: Centralize suffix recovery functions and provide a suffix-aware dispatcher
 Returns: RecoverFn type, SUFFIX_RECOVERY_FUNCS tuple, and recover_with_registry().
 Used by: Base-recovery flows that need fast, deterministic suffix handling.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Set

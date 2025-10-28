@@ -8,6 +8,7 @@ Does: Public interface for expression matching and tone mapping.
 Returns: Curated helpers for alias matching, expression→tone mapping, and glued-token vocab.
 Used by: Color expression detection pipelines and compound/standalone extractors.
 """
+
 from __future__ import annotations
 
 from .expression_helpers import (
@@ -30,8 +31,6 @@ from .expression_helpers import (
 )
 
 __docformat__ = "google"
-
-
 
 
 __all__ = [

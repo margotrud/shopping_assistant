@@ -3,11 +3,11 @@
 """
 conflict_rules.py.
 
-Does: Detect simple conflicts between tokens/aliases: negation (e.g., "no shimmer") 
+Does: Detect simple conflicts between tokens/aliases: negation (e.g., "no shimmer")
 and single-token morphological embedding.
 
 Returns: Boolean checks for negation conflicts and embedded-alias conflicts.
-Used by: Fuzzy/alias validation and conflict resolution steps in 
+Used by: Fuzzy/alias validation and conflict resolution steps in
 extraction pipelines.
 """
 

@@ -14,12 +14,11 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
-from color_sentiment_extractor.extraction.color.llm import (
-    query_llm_for_rgb,
-)
+from color_sentiment_extractor.extraction.color.llm import query_llm_for_rgb
+from color_sentiment_extractor.extraction.color.llm.types import LLMClientProtocol
 from color_sentiment_extractor.extraction.color.recovery import (
     simplify_color_description_with_llm,
     simplify_phrase_if_needed,
@@ -37,15 +36,6 @@ from color_sentiment_extractor.extraction.general.token import (
 logger = logging.getLogger(__name__)
 
 RGB = tuple[int, int, int]
-
-
-class LLMClient(Protocol):
-    """Minimal surface for an LLM client usable here."""
-
-    def query(self, text: str) -> str | None: ...
-
-    # If your real client exposes extra methods (query_rgb, etc.) that's fine,
-    # Protocol is structural so extra attrs won't break callers.
 
 
 # ── Internal typing helpers ──────────────────────────────────────────────
@@ -77,13 +67,12 @@ def _best_rgb_from_name_like(name: str) -> RGB | None:
     return _coerce_rgb(raw)
 
 
-def _as_any(client: LLMClient | None) -> Any:
+def _as_any(client: LLMClientProtocol | None) -> Any:
     """
-    simplify_color_description_with_llm() is typed to expect a different
-    LLMClient class (from another module). At runtime our client is fine,
-    but mypy sees incompatible nominal types.
-
-    We downcast to Any at the call site to silence arg-type complaints.
+    simplify_color_description_with_llm() is typed to expect an LLM client
+    compatible with simplify(), which LLMClientProtocol provides. We still
+    cast to Any at the call site to avoid mypy complaining about nominal
+    type differences across modules.
     """
     return client
 
@@ -184,7 +173,7 @@ def _normalize_modifier_tone(
 # ── LLM-first RGB resolution (with fallbacks) ────────────────────────────
 def get_rgb_from_descriptive_color_llm_first(
     input_color: str,
-    llm_client: LLMClient | None,
+    llm_client: LLMClientProtocol | None,
     cache: dict[str, Any] | None = None,
     debug: bool = False,
 ) -> RGB | None:
@@ -260,7 +249,7 @@ def get_rgb_from_descriptive_color_llm_first(
 
 def resolve_rgb_with_llm(
     phrase: str,
-    llm_client: LLMClient | None,
+    llm_client: LLMClientProtocol | None,
     cache: dict[str, Any] | None = None,
     debug: bool = False,
     prefer_db_first: bool = False,
@@ -297,7 +286,7 @@ def process_color_phrase(
     phrase: str,
     known_modifiers: set[str],
     known_tones: set[str],
-    llm_client: LLMClient | None = None,
+    llm_client: LLMClientProtocol | None = None,
     cache: dict[str, Any] | None = None,
     debug: bool = False,
 ) -> tuple[str, RGB | None]:

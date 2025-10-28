@@ -54,6 +54,7 @@ Returns:
 Used by: Product/search flows, color preference UIs, and debugging tools.
 """
 
+
 # ── Lightweight local protocol for RGB resolver usage ────────────────────────
 @runtime_checkable
 class LLMClientRGBProto(Protocol):

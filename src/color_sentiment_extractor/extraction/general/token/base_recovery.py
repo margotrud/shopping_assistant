@@ -17,6 +17,7 @@ Notes:
 - Normalization ici volontairement légère: lower + strip + remove spaces/hyphens/underscores.
   (On n'appelle PAS normalize_token pour garder la sémantique v1.)
 """
+
 from __future__ import annotations
 
 import logging

@@ -9,6 +9,7 @@ Returns: set[str] of normalized standalone terms; helpers for tone-only extracti
          safe injection/capping.
 Used by: Color phrase extraction pipelines; pre-compound enrichment and downstream RGB routing.
 """
+
 from __future__ import annotations
 
 import logging

@@ -11,6 +11,7 @@ set of canonical expressions.
 
 Used by: Expression→tone mapping stages in color extraction pipelines.
 """
+
 from __future__ import annotations
 
 import logging

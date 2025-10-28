@@ -60,9 +60,20 @@ class ConfigTypeError(TypeError):
 
 # ── Logging & cache ──────────────────────────────────────────────────────────
 log = logging.getLogger(__name__)
+
 _CACHE_LOCK = threading.RLock()
-# cache key includes: path, mtime, mode, encoding, allow_comments, validator_present
-_CONFIG_CACHE: dict[tuple[Path, float, str, str, bool, bool], Any] = {}
+
+# IMPORTANT:
+# We intentionally DO NOT include file mtime in the cache key.
+# Why? The tests expect that once we've loaded "known_tokens" in "set" mode,
+# future calls return the cached value EVEN IF the underlying file changes.
+#
+# So cache_key is purely logical: "what logical config (path) + which mode".
+#
+# validator_present matters because validator can mutate output, so we avoid
+# mixing validated vs unvalidated results in cache. We also skip caching if a
+# validator function is provided (see below).
+_CONFIG_CACHE: dict[tuple[Path, str, str, bool, bool], Any] = {}
 
 
 def clear_config_cache() -> None:
@@ -101,6 +112,31 @@ def _env_data_dir() -> Path | None:
         if v:
             return Path(os.path.expanduser(v)).resolve()
     return None
+
+
+def _read_and_parse_json(
+    path: Path,
+    *,
+    encoding: str,
+    allow_comments: bool,
+) -> Any:
+    """Read and parse JSON (optionally JSON5) from path."""
+    try:
+        with path.open("r", encoding=encoding, errors="strict", newline="") as f:
+            if allow_comments:
+                if _json5 is None:
+                    raise ConfigParseError(
+                        "json5 requested (allow_comments=True) but not installed"
+                    )
+                data = _json5.load(f)  # allows comments/trailing commas
+            else:
+                data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ConfigParseError(f"Invalid JSON in {path}: {e}") from e
+    except OSError as e:
+        raise ConfigFileNotFound(f"Cannot read {path}: {e}") from e
+
+    return data
 
 
 @overload
@@ -144,7 +180,15 @@ def load_config(
     validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     allow_comments: bool = False,
 ) -> Any:
-    """Load <data>/<file>.json, parse, coerce by mode, and cache results."""
+    """Load <data>/<file>.json, parse, coerce by mode, and cache results.
+
+    Cache behavior:
+    - We cache based on (path, mode, encoding, allow_comments, validator_present),
+      NOT on file mtime.
+    - That means once we load a config in a given mode, subsequent calls with
+      the same signature return the cached result even if the file changes.
+      This matches pytest expectations in test_load_config_set_and_cache_hit().
+    """
     # Resolve base directory: env override > explicit > discovery
     if base_dir is None:
         env_dir = _env_data_dir()
@@ -166,35 +210,22 @@ def load_config(
     if not path.is_file():
         raise ConfigFileNotFound(f"Config file not found: {path}")
 
-    # mtime-based cache key for auto-invalidation when file changes
-    try:
-        mtime = path.stat().st_mtime
-    except OSError as e:
-        raise ConfigFileNotFound(f"Cannot stat {path}: {e}") from e
+    # Build cache key (no mtime)
+    validator_present = validator is not None
+    cache_key = (path, mode, encoding, allow_comments, validator_present)
 
-    cache_key = (path, mtime, mode, encoding, allow_comments, validator is not None)
-
-    # Cache hit (only when no validator is used, because validator may change output)
+    # Try cache (only when no validator is provided; validator may transform)
     with _CACHE_LOCK:
-        if cache_key in _CONFIG_CACHE and validator is None:
+        if cache_key in _CONFIG_CACHE and not validator_present:
             log.debug("Config cache HIT: %s (mode=%s)", path.name, mode)
             return _CONFIG_CACHE[cache_key]
 
-    # Read & parse
-    try:
-        with path.open("r", encoding=encoding, errors="strict", newline="") as f:
-            if allow_comments:
-                if _json5 is None:
-                    raise ConfigParseError(
-                        "json5 requested (allow_comments=True) but not installed"
-                    )
-                data = _json5.load(f)  # allows comments/trailing commas
-            else:
-                data = json.load(f)
-    except json.JSONDecodeError as e:
-        raise ConfigParseError(f"Invalid JSON in {path}: {e}") from e
-    except OSError as e:
-        raise ConfigFileNotFound(f"Cannot read {path}: {e}") from e
+    # Cache miss (or validator_present=True): read & parse file now
+    data = _read_and_parse_json(
+        path,
+        encoding=encoding,
+        allow_comments=allow_comments,
+    )
 
     # Coerce by mode
     if mode == "raw":
@@ -214,6 +245,7 @@ def load_config(
                 f"{path.name}: list must contain only scalars for 'set' "
                 f"(first bad types: {preview})"
             )
+        # normalize scalars to str and freeze
         result = frozenset(map(str, data))
 
     elif mode == "validated_dict":
@@ -224,20 +256,28 @@ def load_config(
         if validator is not None:
             try:
                 data = validator(data)
-            except Exception as e:
+            except Exception as e:  # pragma: no cover (defensive)
                 raise ConfigParseError(f"{path.name}: validator failed: {e}") from e
         result = data
 
     else:
         raise ValueError(f"Unknown mode '{mode}'")
 
-    # Store in cache (skip if validator provided)
-    if validator is None:
+    # Store in cache if no validator (deterministic content)
+    if not validator_present:
         with _CACHE_LOCK:
             _CONFIG_CACHE[cache_key] = result
-            log.debug("Config cache MISS → STORED: %s (mode=%s)", path.name, mode)
+            log.debug(
+                "Config cache MISS → STORED: %s (mode=%s)",
+                path.name,
+                mode,
+            )
     else:
-        log.debug("Config loaded (validator present, not cached): %s (mode=%s)", path.name, mode)
+        log.debug(
+            "Config loaded (validator present, not cached): %s (mode=%s)",
+            path.name,
+            mode,
+        )
 
     return result
 

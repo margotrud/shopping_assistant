@@ -20,6 +20,7 @@ Tests: general/sentiment (core.py & router.py)
 # Fixtures & Fakes
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class FakeVader:
     """Minimal VADER fake: scores with word-boundary matching; negatives win over positives."""
 
@@ -32,6 +33,7 @@ class FakeVader:
         if self._POS.search(text):
             return {"compound": 0.6}
         return {"compound": 0.0}
+
 
 class FakeBart:
     """Fake zero-shot pipeline: renvoie un ordre de labels déterministe comme core._FakeZeroShot."""
@@ -63,16 +65,17 @@ def patch_env_and_loaders(monkeypatch):
 # Tests core.py (détection & mapping)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def test_detect_sentiment_vader_paths():
     assert (
-            S.detect_sentiment("I love this product!", vader=FakeVader(), bart=FakeBart())
-            == "positive"
+        S.detect_sentiment("I love this product!", vader=FakeVader(), bart=FakeBart())
+        == "positive"
     )
     assert S.detect_sentiment("I hate this color", vader=FakeVader(), bart=FakeBart()) == "negative"
     # Neutre → bascule sur BART (FakeBart renverra 'neutral' en top label)
     assert (
-            S.detect_sentiment("It's okay, nothing special", vader=FakeVader(), bart=FakeBart())
-            == "neutral"
+        S.detect_sentiment("It's okay, nothing special", vader=FakeVader(), bart=FakeBart())
+        == "neutral"
     )
 
 
@@ -83,9 +86,9 @@ def test_map_sentiment_negation_overrides_to_negative():
 
 def test_is_negated_or_soft_variants():
     hard, soft = S.is_negated_or_soft("not too shiny", debug=False)
-    assert (hard, soft) == (False, True)   # soft-negation
+    assert (hard, soft) == (False, True)  # soft-negation
     hard, soft = S.is_negated_or_soft("no lipstick please", debug=False)
-    assert (hard, soft) == (True, False)   # hard-negation
+    assert (hard, soft) == (True, False)  # hard-negation
     hard, soft = S.is_negated_or_soft("I am happy", debug=False)
     assert (hard, soft) == (False, False)
 
@@ -103,16 +106,28 @@ def test_classify_segments_by_sentiment_no_neutral_bucketing():
     segments = ["I love nude rose", "not too shiny", "I dislike glitter", "meh"]
     out = S.classify_segments_by_sentiment_no_neutral(has_splitter=False, segments=segments)
     assert set(out.keys()) == {"positive", "negative"}
-    assert any("meh" in s for s in out["positive"])         # neutre → positive par défaut
-    assert any("not too shiny" in s for s in out["negative"])  # soft-negation → negative
+    assert any("meh" in s for s in out["positive"])  # neutre → positive par défaut
+    assert any(
+        "not too shiny" in s for s in out["negative"]
+    )  # soft-negation → negative
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tests router.py (résumé par sentiment)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _fake_aggregate_color_phrase_results(
-    *, segments, known_modifiers, all_webcolor_names, llm_client, cache, debug
+    *,
+    segments,
+    known_modifiers,
+    known_tones=None,
+    all_webcolor_names=None,
+    expression_map=None,
+    llm_client=None,
+    cache=None,
+    nlp=None,
+    debug=False,
 ):
     matched_phrases = ["Dusty Rose", "nude rose", "dusty rose"]  # doublons volontairement
     local_rgb = {
@@ -136,12 +151,16 @@ def _euclid_rgb(a, b):
 
 def test_build_color_sentiment_summary_happy_path(monkeypatch):
     monkeypatch.setattr(
-        R, "aggregate_color_phrase_results",
+        R,
+        "aggregate_color_phrase_results",
         lambda **kwargs: _fake_aggregate_color_phrase_results(**kwargs),
         raising=True,
     )
     monkeypatch.setattr(
-        R, "choose_representative_rgb", _fake_choose_representative_rgb, raising=True
+        R,
+        "choose_representative_rgb",
+        _fake_choose_representative_rgb,
+        raising=True,
     )
     monkeypatch.setattr(R, "rgb_distance", _euclid_rgb, raising=True)
 
@@ -151,12 +170,14 @@ def test_build_color_sentiment_summary_happy_path(monkeypatch):
     known_modifiers = {"dusty"}
     rgb_map = {"beige": (220, 210, 190)}
     base_rgb_by_sentiment = {}
+    expression_map = {}  # <- nouveau: match la nouvelle signature
 
     summary = R.build_color_sentiment_summary(
         sentiment=sentiment,
         segments=segments,
         known_tones=known_tones,
         known_modifiers=known_modifiers,
+        expression_map=expression_map,  # <- ajouté
         rgb_map=rgb_map,
         base_rgb_by_sentiment=base_rgb_by_sentiment,
         debug=True,
@@ -164,10 +185,15 @@ def test_build_color_sentiment_summary_happy_path(monkeypatch):
 
     names = summary["matched_color_names"]
     assert len(names) == 2
-    assert (
-            [s.casefold() for s in names] == ["dusty rose", "nude rose"]
-    )  # ordre + dédup insensibles à la casse
+    # ordre + dédup insensibles à la casse
+    assert [s.casefold() for s in names] == ["dusty rose", "nude rose"]
+
     assert summary["base_rgb"] in {(210, 150, 160), (205, 170, 165)}
+
     assert isinstance(summary["threshold"], float) and 30.0 <= summary["threshold"] <= 80.0
+
+    # rgb_map enrichi doit contenir nos tons simplifiés
     assert "dusty rose" in rgb_map and "nude rose" in rgb_map
+
+    # Le cache global par sentiment doit être mis à jour
     assert base_rgb_by_sentiment.get("romantic") == summary["base_rgb"]

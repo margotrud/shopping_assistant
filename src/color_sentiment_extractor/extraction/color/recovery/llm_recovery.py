@@ -17,12 +17,13 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable
-from typing import Protocol
 
 from color_sentiment_extractor.extraction.color import COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color.llm.types import LLMClientProtocol
 from color_sentiment_extractor.extraction.general.token import normalize_token, recover_base
 from color_sentiment_extractor.extraction.general.types import TokenLike
 
+from ..constants import AUTONOMOUS_TONE_BAN
 from .modifier_resolution import resolve_modifier_token
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -33,16 +34,11 @@ __all__ = [
     "_extract_filtered_tokens",
 ]
 
-from ..constants import AUTONOMOUS_TONE_BAN
-
 # ── Logging ───────────────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
-
 # ── Types ─────────────────────────────────────────────────────────────────────
-class LLMClient(Protocol):
-    def simplify(self, phrase: str) -> str: ...
-
+# (plus de définition locale de LLMClient ici)
 
 # ── Constants / Regex ─────────────────────────────────────────────────────────
 _PAIR_RE = re.compile(r"^\s*([a-z\-]+)\s+([a-z][a-z\-\s]*)\s*$")
@@ -88,7 +84,7 @@ def _attempt_simplify_token(
     token: str,
     known_modifiers: set[str],
     known_tones: set[str],
-    llm_client: LLMClient | None,
+    llm_client: LLMClientProtocol | None,
     role: str = "modifier",
     debug: bool = True,
 ) -> str | None:
@@ -173,7 +169,7 @@ def _extract_filtered_tokens(
     tokens: Iterable[TokenLike],
     known_modifiers: set[str],
     known_tones: set[str],
-    llm_client: LLMClient | None,
+    llm_client: LLMClientProtocol | None,
     debug: bool,
 ) -> set[str]:
     """
@@ -273,7 +269,7 @@ def build_prompt(phrase: str) -> str:
 
 def simplify_color_description_with_llm(
     phrase: str,
-    llm_client: LLMClient,
+    llm_client: LLMClientProtocol,
     cache=None,
     debug: bool = False,
 ) -> str:
@@ -305,7 +301,7 @@ def simplify_phrase_if_needed(
     phrase: str,
     known_modifiers: set[str],
     known_tones: set[str],
-    llm_client: LLMClient | None,
+    llm_client: LLMClientProtocol | None,
     cache=None,
     debug: bool = False,
 ) -> str | None:

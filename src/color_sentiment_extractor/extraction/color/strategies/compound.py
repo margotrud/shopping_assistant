@@ -1,4 +1,3 @@
-
 """
 compound.py.
 
@@ -61,8 +60,6 @@ def get_nlp():
         return spacy.load("en_core_web_sm")
     except OSError:
         return spacy.blank("en")  # tokenization-only fallback
-
-
 
 
 def _surface_modifier(

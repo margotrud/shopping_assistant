@@ -16,12 +16,10 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-# ── Imports ──────────────────────────────────────────────────────────────────
 from color_sentiment_extractor.extraction.color import SEMANTIC_CONFLICTS
 from color_sentiment_extractor.extraction.general.fuzzy import rhyming_conflict
 from color_sentiment_extractor.extraction.general.token.normalize import normalize_token
 from color_sentiment_extractor.extraction.general.utils import load_config
-from typing import FrozenSet
 
 # ── Public API ───────────────────────────────────────────────────────────────
 __all__ = ["is_suffix_root_match"]
@@ -43,9 +41,7 @@ def _get_known_tones() -> frozenset[str]:
     return frozenset(load_config("known_tones", mode="set"))
 
 
-def _common_base(
-    a_norm: str, t_norm: str, *, km: set[str], kt: set[str]
-) -> str | None:
+def _common_base(a_norm: str, t_norm: str, *, km: set[str], kt: set[str]) -> str | None:
     """Does: Return shared base if both reduce to the same known base, else None."""
     from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
 

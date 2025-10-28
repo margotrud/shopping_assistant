@@ -9,6 +9,7 @@ Does: Fast, budgeted splitting of glued tokens via 2-way greedy,
 Returns: Lists of normalized parts (str) or []/None when no valid split.
 Used by: Tokenization/extraction stages that must deglue candidate tokens.
 """
+
 from __future__ import annotations
 
 import logging

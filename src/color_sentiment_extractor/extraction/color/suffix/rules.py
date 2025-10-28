@@ -4,16 +4,17 @@
 suffix.rules.
 ============
 
-Does: Utilities for suffix handling on color tokens: check '-y' eligibility, 
+Does: Utilities for suffix handling on color tokens: check '-y' eligibility,
 detect CVC endings,
       build '-y'/'-ey' variants (overrides/allowlists/rules), and apply reverse overrides.
 Used By: Suffix vocab builders, base-recovery flows, and compound/standalone extractors.
 Returns: Public helpers for suffix generation/recovery used across extraction pipelines.
 
 Notes importantes:
-- EY_SUFFIX_ALLOWLIST peut être absent de `constants`; on bascule alors sur un ensemble 
+- EY_SUFFIX_ALLOWLIST peut être absent de `constants`; on bascule alors sur un ensemble
 vide.
 """
+
 from __future__ import annotations
 
 import logging

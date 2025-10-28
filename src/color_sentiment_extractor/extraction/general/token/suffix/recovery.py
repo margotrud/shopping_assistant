@@ -7,19 +7,17 @@ Used by: suffix.registry and token_utils for normalization.
 
 from __future__ import annotations
 
+import logging as log
 from functools import lru_cache
 
+from color_sentiment_extractor.extraction.color.constants import (
+    Y_SUFFIX_ALLOWLIST,  # used as an allowlist for certain -ey bases as well
+)
 from color_sentiment_extractor.extraction.color.suffix import (
     build_ey_variant,
     build_y_variant,
     is_cvc_ending,
 )
-from color_sentiment_extractor.extraction.general.token.suffix.constants import (
-    Y_SUFFIX_ALLOWLIST,  # used as an allowlist for certain -ey bases as well
-)
-import logging
-
-log: logging.Logger = logging.getLogger(__name__)
 
 __all__ = [
     "recover_ed",
@@ -36,21 +34,62 @@ __all__ = [
     "recover_y",
 ]
 
+# ------------------------------------------------------------------
+# Globals patchable by tests.
+# In production they start as None and are hydrated lazily by
+# _get_overrides_and_guards().
+# ------------------------------------------------------------------
+RECOVER_BASE_OVERRIDES: dict[str, str] | None = None
+NON_SUFFIXABLE_MODIFIERS: set[str] | None = None
+ED_SUFFIX_ALLOWLIST: set[str] | None = None
+
 
 # ─────────────────────────────────────────────
 # Internal helper to avoid circular imports
 # ─────────────────────────────────────────────
 def _get_overrides_and_guards():
     """
-    Lazy-import override/config sets from modifier_resolution to avoid
-    circular import between recovery <-> modifier_resolution.
+    Lazy resolver for override/config sets.
+
+    Does:
+    - If tests already monkeypatched the globals, reuse them.
+    - Otherwise import from color.constants and cache them in globals.
+
+    Returns:
+        (RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST)
     """
-    from color_sentiment_extractor.extraction.color.recovery.modifier_resolution import (
-        ED_SUFFIX_ALLOWLIST,
-        NON_SUFFIXABLE_MODIFIERS,
-        RECOVER_BASE_OVERRIDES,
+    global RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST
+
+    if (
+        RECOVER_BASE_OVERRIDES is not None
+        and NON_SUFFIXABLE_MODIFIERS is not None
+        and ED_SUFFIX_ALLOWLIST is not None
+    ):
+        return (
+            RECOVER_BASE_OVERRIDES,
+            NON_SUFFIXABLE_MODIFIERS,
+            ED_SUFFIX_ALLOWLIST,
+        )
+
+    from color_sentiment_extractor.extraction.color.constants import (
+        ED_SUFFIX_ALLOWLIST as _REAL_ED_SUFFIX_ALLOWLIST,
     )
-    return RECOVER_BASE_OVERRIDES, NON_SUFFIXABLE_MODIFIERS, ED_SUFFIX_ALLOWLIST
+    from color_sentiment_extractor.extraction.color.constants import (
+        NON_SUFFIXABLE_MODIFIERS as _REAL_NON_SUFFIXABLE_MODIFIERS,
+    )
+    from color_sentiment_extractor.extraction.color.constants import (
+        RECOVER_BASE_OVERRIDES as _REAL_RECOVER_BASE_OVERRIDES,
+    )
+
+    RECOVER_BASE_OVERRIDES = dict(_REAL_RECOVER_BASE_OVERRIDES)
+    NON_SUFFIXABLE_MODIFIERS = set(_REAL_NON_SUFFIXABLE_MODIFIERS)
+    ED_SUFFIX_ALLOWLIST = set(_REAL_ED_SUFFIX_ALLOWLIST)
+
+    return (
+        RECOVER_BASE_OVERRIDES,
+        NON_SUFFIXABLE_MODIFIERS,
+        ED_SUFFIX_ALLOWLIST,
+    )
 
 
 # ─────────────────────────────────────────────
@@ -64,11 +103,12 @@ def build_augmented_suffix_vocab(
     debug: bool = False,
 ) -> set[str]:
     """
-    Does: Build a suffix-augmented vocabulary from known tokens/modifiers(/tones) with
-          deterministic iteration (stable outputs).
+    Does: Build a suffix-augmented vocabulary from known tokens/modifiers(/tones)
+          with deterministic iteration (stable outputs).
           - Recovers base via rules/overrides; generates valid -y / -ey / -ed
             (CVC doubling, y→ied handling, e-drop) without over-producing.
-          - Avoids default -ed; restricts -ey to build_ey_variant + known allowlists.
+          - Avoids default -ed; restricts -ey to build_ey_variant + known
+            allowlists.
     Returns: Set of valid base and suffixed tokens.
     """
     from color_sentiment_extractor.extraction.general.token.base_recovery import (
@@ -82,11 +122,11 @@ def build_augmented_suffix_vocab(
     ) = _get_overrides_and_guards()
 
     known_tones = known_tones or set()
-
     webcolor_names = webcolor_names or set()
 
     # seed includes tones to allow e.g., rose→rosy
     raw_inputs = known_tokens | known_modifiers | known_tones
+
     # reference vocabulary to help fallback recoveries
     recovery_vocab = known_modifiers | known_tokens | known_tones | webcolor_names
 
@@ -100,7 +140,10 @@ def build_augmented_suffix_vocab(
             log.debug("[PROCESS] Raw token: %r", raw)
 
         # 1) Base via override or recover_base
-        base = RECOVER_BASE_OVERRIDES.get(raw) or recover_base(raw, use_cache=True)
+        base = RECOVER_BASE_OVERRIDES.get(raw) or recover_base(
+            raw,
+            use_cache=True,
+        )
 
         # 1.b) Minimal manual fallback if base not resolved and raw not known
         if base == raw and raw not in known_modifiers and raw not in known_tones:
@@ -120,7 +163,11 @@ def build_augmented_suffix_vocab(
                 )
                 if retry:
                     if debug:
-                        log.debug("[MANUAL OVERRIDE] %r → %r via fallback", raw, retry)
+                        log.debug(
+                            "[MANUAL OVERRIDE] %r → %r via fallback",
+                            raw,
+                            retry,
+                        )
                     base = retry
 
         if not base:
@@ -157,7 +204,8 @@ def build_augmented_suffix_vocab(
             if debug:
                 log.debug("[FORCE -y] %r → %r", base, fallback_y)
 
-        # 3) Generate -ey STRICT: only if build_ey_variant AND present in known_modifiers
+        # 3) Generate -ey STRICT: only if build_ey_variant AND present in
+        #    known_modifiers
         ey_form = build_ey_variant(base, raw, debug=False)
         if ey_form and ey_form in known_modifiers:
             forms.add(ey_form)
@@ -205,7 +253,10 @@ def build_augmented_suffix_vocab(
         augmented.update(forms)
 
     if debug:
-        log.debug("Done. Final augmented vocab (%d items)", len(augmented))
+        log.debug(
+            "Done. Final augmented vocab (%d items)",
+            len(augmented),
+        )
 
     return augmented
 
@@ -222,16 +273,19 @@ def is_suffix_variant(
     allow_fuzzy: bool = False,
 ) -> bool:
     """
-    Does: Tell if token is a -y/-ey/-ed variant whose base is a known modifier/tone.
+    Does: Tell if token is a -y/-ey/-ed variant whose base is a known
+          modifier/tone.
           (Scope intentionally limited to {-y, -ey, -ed} for pipeline usage.)
     Returns: True if recovered base is known and not blocked.
     """
-    from color_sentiment_extractor.extraction.general.token.base_recovery import recover_base
+    from color_sentiment_extractor.extraction.general.token.base_recovery import (
+        recover_base,
+    )
 
     (
         RECOVER_BASE_OVERRIDES,
         NON_SUFFIXABLE_MODIFIERS,
-        _ED_SUFFIX_ALLOWLIST,
+        ED_SUFFIX_ALLOWLIST,
     ) = _get_overrides_and_guards()
 
     if not token.endswith(("y", "ey", "ed")):
@@ -242,7 +296,10 @@ def is_suffix_variant(
     # If token is already known (and not in overrides), it's not a *variant*.
     if (token in known_modifiers or token in known_tones) and token not in RECOVER_BASE_OVERRIDES:
         if debug:
-            log.debug("[SKIP] %r is already known and not an override", token)
+            log.debug(
+                "[SKIP] %r is already known and not an override",
+                token,
+            )
         return False
 
     base = recover_base(
@@ -279,14 +336,18 @@ def recover_y(
     debug: bool = False,
 ) -> str | None:
     """
-    Does: Recover base from -y forms (creamy→cream/e, dusty→dust, shiny→shine).
+    Does: Recover base from -y forms (creamy→cream/e, dusty→dust,
+          shiny→shine).
           Tries base, base+e, double-consonant collapse, second y-strip.
     Returns: Base token if found, else None.
     """
     token = (token or "").strip().lower()
     if not token.endswith("y") or len(token) < 3:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-y' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-y' suffix candidate",
+                token,
+            )
         return None
 
     if debug:
@@ -339,7 +400,10 @@ def recover_ed(
     token = (token or "").strip().lower()
     if not token.endswith("ed") or len(token) <= 3:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ed' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ed' suffix candidate",
+                token,
+            )
         return None
 
     base = token[:-2]
@@ -377,7 +441,10 @@ def recover_ing(
     token = (token or "").strip().lower()
     if not token.endswith("ing") or len(token) <= 5:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ing' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ing' suffix candidate",
+                token,
+            )
         return None
 
     base = token[:-3]
@@ -408,7 +475,10 @@ def recover_ied(
     token = (token or "").strip().lower()
     if not token.endswith("ied") or len(token) <= 3:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ied' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ied' suffix candidate",
+                token,
+            )
         return None
 
     candidate = token[:-3] + "y"
@@ -437,7 +507,10 @@ def recover_er(
     token = (token or "").strip().lower()
     if not token.endswith("er") or len(token) <= 2:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-er' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-er' suffix candidate",
+                token,
+            )
         return None
 
     candidate = token[:-2]
@@ -490,7 +563,11 @@ def recover_ier(
             override = RECOVER_BASE_OVERRIDES[y_form]
             if override in known_modifiers or override in known_tones:
                 if debug:
-                    log.debug("[IER → Y → OVERRIDE] %r → %r", token, override)
+                    log.debug(
+                        "[IER → Y → OVERRIDE] %r → %r",
+                        token,
+                        override,
+                    )
                 return override
 
     if debug:
@@ -506,7 +583,8 @@ def recover_ish(
 ) -> str | None:
     """
     Does: Recover base from -ish forms (greenish→green, ivorish→ivory/ivor+e).
-          Tries direct base, collapse doubled consonant, +y/+e, then recover_base(base).
+          Tries direct base, collapse doubled consonant, +y/+e,
+          then recover_base(base).
     Returns: Base token if found, else None.
     """
     token = (token or "").strip().lower()
@@ -528,7 +606,12 @@ def recover_ish(
             log.debug("[ISH DIRECT] %r → %r", token, base)
         return base
 
-    collapsed = _collapse_double_consonant(base, known_modifiers, known_tones, debug=False)
+    collapsed = _collapse_double_consonant(
+        base,
+        known_modifiers,
+        known_tones,
+        debug=False,
+    )
     if collapsed:
         if debug:
             log.debug("[ISH COLLAPSED] %r → %r", token, collapsed)
@@ -565,7 +648,12 @@ def recover_ish(
 
     if recovered:
         if debug:
-            log.debug("[ISH CHAINED] %r → %r → %r", token, base, recovered)
+            log.debug(
+                "[ISH CHAINED] %r → %r → %r",
+                token,
+                base,
+                recovered,
+            )
         return recovered
 
     return None
@@ -585,7 +673,10 @@ def recover_ness(
     token = (token or "").strip().lower()
     if not token.endswith("ness") or len(token) <= 5:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ness' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ness' suffix candidate",
+                token,
+            )
         return None
 
     base = token[:-4]
@@ -623,7 +714,10 @@ def recover_ly(
     token = (token or "").strip().lower()
     if not token.endswith("ly") or len(token) <= 3:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ly' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ly' suffix candidate",
+                token,
+            )
         return None
 
     candidate = token[:-4] + "ic" if token.endswith("ally") else token[:-2]
@@ -655,7 +749,10 @@ def recover_en(
     token = (token or "").strip().lower()
     if not token.endswith("en") or len(token) <= 3:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-en' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-en' suffix candidate",
+                token,
+            )
         return None
 
     candidate = token[:-2]
@@ -686,21 +783,30 @@ def recover_ey(
     token = (token or "").strip().lower()
     if not token.endswith("ey") or len(token) <= 4:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ey' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ey' suffix candidate",
+                token,
+            )
         return None
 
     base = token[:-2]
     candidate = base + "e"
 
     if debug:
-        log.debug("[recover_ey] %r → base=%r, candidate=%r", token, base, candidate)
+        log.debug(
+            "[recover_ey] %r → base=%r, candidate=%r",
+            token,
+            base,
+            candidate,
+        )
 
     if candidate in known_modifiers or candidate in known_tones:
         if debug:
             log.debug("[EY +E RESTORE] %r → %r", token, candidate)
         return candidate
 
-    # Reuse Y_SUFFIX_ALLOWLIST as a conservative allowlist of acceptable roots for -ey
+    # Reuse Y_SUFFIX_ALLOWLIST as a conservative allowlist of acceptable
+    # roots for -ey
     if base in Y_SUFFIX_ALLOWLIST:
         if debug:
             log.debug("[EY ALLOWLIST] %r → %r", token, base)
@@ -725,7 +831,10 @@ def recover_ee_to_y(
     token = (token or "").strip().lower()
     if not token.endswith("ee") or len(token) < 4:
         if debug:
-            log.debug("[SKIP] %r → not a valid '-ee' suffix candidate", token)
+            log.debug(
+                "[SKIP] %r → not a valid '-ee' suffix candidate",
+                token,
+            )
         return None
 
     base = token[:-2] + "y"
@@ -752,7 +861,8 @@ def _collapse_double_consonant(
     debug: bool = False,
 ) -> str | None:
     """
-    Does: Collapse trailing doubled consonant if the single form is known (e.g., “redd”→“red”).
+    Does: Collapse trailing doubled consonant if the single form is known
+          (e.g., “redd”→“red”).
     Returns: Collapsed base if found, else None.
     """
     if len(base) < 2 or base[-1] != base[-2]:

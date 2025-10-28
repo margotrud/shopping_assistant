@@ -13,6 +13,7 @@ Does:
 - Logging (no print), configurable VADER thresholds, LRU cache
 - High-level API: analyze_sentence_sentiment(sentence) → list[ClauseResult]
 """
+
 from __future__ import annotations
 
 import logging
@@ -138,7 +139,7 @@ _nlp = None
 _vader = None
 _sentiment_pipeline = None
 _negex_ready: bool | None = None  # tri-state: None (unknown), True (available),
-                                 # False (not installed)
+# False (not installed)
 
 _SENTIMENT_MODEL_NAME = "facebook/bart-large-mnli"
 
@@ -204,6 +205,7 @@ def get_sentiment_pipeline():
         else:
             try:
                 import torch  # optional
+
                 device = 0 if torch.cuda.is_available() else -1
             except Exception:
                 device = -1
@@ -273,8 +275,7 @@ def _vader_score(text: str) -> float:
 # Public API: classify segments into pos/neg
 # ─────────────────────────────────────────────
 def classify_segments_by_sentiment_no_neutral(
-    has_splitter: bool,
-    segments: list[str]
+    has_splitter: bool, segments: list[str]
 ) -> SentimentBuckets:
     """
     Classifies segments into positive/negative using VADER + BART (fallback).
@@ -284,8 +285,8 @@ def classify_segments_by_sentiment_no_neutral(
     classification: SentimentBuckets = {"positive": [], "negative": []}
     for seg in segments:
         try:
-            base = detect_sentiment(seg)          # hybrid (VADER → BART)
-            mapped = map_sentiment(base, seg)     # negation override + VADER re-check
+            base = detect_sentiment(seg)  # hybrid (VADER → BART)
+            mapped = map_sentiment(base, seg)  # negation override + VADER re-check
             final: Sentiment = mapped
             if final == "neutral":
                 hn, sn = is_negated_or_soft(seg, debug=False)
@@ -301,9 +302,7 @@ def classify_segments_by_sentiment_no_neutral(
 # Hybrid sentiment detection (with DI for tests)
 # ─────────────────────────────────────────────
 def detect_sentiment(
-    text: str,
-    vader: SentimentIntensityAnalyzer | None = None,
-    bart: Any | None = None
+    text: str, vader: SentimentIntensityAnalyzer | None = None, bart: Any | None = None
 ) -> Sentiment:
     """Detects sentiment using a hybrid approach.
 
@@ -319,7 +318,7 @@ def detect_sentiment(
     """
     try:
         v = vader or get_vader()
-        score = (_vader_score(text) if vader is None else v.polarity_scores(text)["compound"])
+        score = _vader_score(text) if vader is None else v.polarity_scores(text)["compound"]
         if score >= VADER_POS_TH:
             return "positive"
         elif score <= VADER_NEG_TH:
@@ -388,6 +387,7 @@ def contains_sentiment_splitter_with_segments(text: str) -> tuple[bool, list[str
         try:
             # Correct package path; lazy import to avoid heavy imports at module load
             from color_sentiment_extractor.extraction.general.utils.load_config import load_config
+
             discourse_adverbs: frozenset[str] = load_config("discourse_adverbs", mode="set")
         except Exception:
             discourse_adverbs = frozenset()
@@ -437,6 +437,7 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
     Avoid splitting when a conjunction connects two tone-like tokens.
     If `antonym_fn` is provided, it will be used to reject pairs of ADJ that are antonyms.
     """
+
     def dbg(*args):
         _dbg(debug, "[is_tone_conjunction]", *args)
 
@@ -450,10 +451,7 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
     next_ = doc[index + 1] if index + 1 < len(doc) else None
 
     dbg(f"doc='{doc.text}'")
-    dbg(
-        f"center idx={index} text='{tok.text}' pos={tok.pos_} tag={tok.tag_} "
-        f"morph={tok.morph}"
-    )
+    dbg(f"center idx={index} text='{tok.text}' pos={tok.pos_} tag={tok.tag_} morph={tok.morph}")
 
     if not prev or not next_:
         dbg("Missing prev/next neighbor → False")
@@ -461,9 +459,7 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
 
     center_text = tok.lower_
     conj_like = (
-        center_text in {"and", "or", "&", "/"} or
-        tok.pos_ == "CCONJ" or
-        tok.tag_ in {"CC", "CCONJ"}
+        center_text in {"and", "or", "&", "/"} or tok.pos_ == "CCONJ" or tok.tag_ in {"CC", "CCONJ"}
     )
     dbg(f"conj_like={conj_like}")
 
@@ -479,15 +475,10 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
         is_adj = pos == "ADJ"
         is_nounish = pos in {"NOUN", "PROPN"}
         verbform = morph.get("VerbForm")
-        is_participle = (
-            pos in {"VERB", "AUX"} and
-            (tag == "VBN" or ("Part" in verbform if verbform else False))
+        is_participle = pos in {"VERB", "AUX"} and (
+            tag == "VBN" or ("Part" in verbform if verbform else False)
         )
-        is_past_ed_as_adj = (
-            pos in {"VERB", "AUX"} and
-            tag == "VBD" and
-            low.endswith("ed")
-        )
+        is_past_ed_as_adj = pos in {"VERB", "AUX"} and tag == "VBD" and low.endswith("ed")
 
         # Reject plain verbs (unless post overrides)
         if pos in {"VERB", "AUX"} and not (is_participle or is_past_ed_as_adj):
@@ -502,9 +493,7 @@ def is_tone_conjunction(doc, index: int, antonym_fn=None, debug: bool = False) -
                 },
             )
 
-        has_adj_suffix = low.endswith("ish") or (
-            low.endswith("y") and not low.endswith("ly")
-        )
+        has_adj_suffix = low.endswith("ish") or (low.endswith("y") and not low.endswith("ly"))
         likely_descr = (
             t.is_alpha
             and len(low) <= 8
@@ -610,7 +599,7 @@ def split_text_on_index(doc, i: int) -> list[str]:
     """
     # i = premier token → on prend ce qu'il y a APRÈS
     if i == 0:
-        remaining = " ".join(tok.text for tok in doc[i + 1:]).strip()
+        remaining = " ".join(tok.text for tok in doc[i + 1 :]).strip()
         return [seg.strip() for seg in re.split(r"[;,]", remaining) if seg.strip()]
 
     # i = dernier token → on prend ce qu'il y a AVANT
@@ -620,7 +609,7 @@ def split_text_on_index(doc, i: int) -> list[str]:
 
     # i au milieu → split en deux morceaux (avant / après)
     left = doc[:i].text.strip()
-    right = doc[i + 1:].text.strip()
+    right = doc[i + 1 :].text.strip()
     return [left, right]
 
 
@@ -630,9 +619,7 @@ def fallback_split_on_punctuation(text: str) -> tuple[bool, list[str]]:
     return no-split.
     """
     segments = [
-        s.strip()
-        for s in _PUNCT_SPLIT_RE.split(text)
-        if s and s.strip() not in {".", ";", ","}
+        s.strip() for s in _PUNCT_SPLIT_RE.split(text) if s and s.strip() not in {".", ";", ","}
     ]
     # The splitting above keeps separators in the list; we filtered them out.
     return (True, segments) if len(segments) >= 2 else (False, [text.strip()])
@@ -657,7 +644,7 @@ def _split_sentence_with_separators(text: str, _doc=None) -> tuple[list[str], li
     if idx is not None:
         sep = doc[idx].text.strip()
         left = doc[:idx].text.strip()
-        right = doc[idx + 1:].text.strip()
+        right = doc[idx + 1 :].text.strip()
         # Guard: if one side is empty, treat as unreliable and fallback to punctuation
         if left and right:
             return [left, right], [sep, None]
@@ -674,7 +661,7 @@ def _split_sentence_with_separators(text: str, _doc=None) -> tuple[list[str], li
                 continue
             if (prev_tok.pos_ in {"VERB", "AUX"}) or (next_tok.pos_ in {"VERB", "AUX"}):
                 left = doc[:j].text.strip()
-                right = doc[j + 1:].text.strip()
+                right = doc[j + 1 :].text.strip()
                 if left and right:  # only accept if both sides are non-empty
                     return [left, right], ["or", None]
 

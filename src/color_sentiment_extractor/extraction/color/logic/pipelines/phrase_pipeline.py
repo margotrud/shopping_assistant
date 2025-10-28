@@ -14,11 +14,6 @@ from __future__ import annotations
 import logging
 import re
 from functools import lru_cache
-from typing import (
-    Protocol,
-    cast,
-    runtime_checkable,
-)
 
 import spacy
 from spacy.language import Language
@@ -34,6 +29,7 @@ except Exception:  # pragma: no cover
     ratio = _fuzz.ratio
 
 from color_sentiment_extractor.extraction.color import BLOCKED_TOKENS, COSMETIC_NOUNS
+from color_sentiment_extractor.extraction.color.llm.types import LLMClientProtocol
 from color_sentiment_extractor.extraction.color.strategies import (
     extract_compound_phrases,
     extract_lone_tones,
@@ -41,30 +37,12 @@ from color_sentiment_extractor.extraction.color.strategies import (
 )
 from color_sentiment_extractor.extraction.general.token import recover_base
 
-# import the canonical LLM protocol used across the project
-from color_sentiment_extractor.extraction.llm.types import (
-    LLMClientProto as CoreLLMClientProto,
-)
-
 from .rgb_pipeline import process_color_phrase
 
 # ── Types & Globals ───────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 
 RGB = tuple[int, int, int]
-
-
-@runtime_checkable
-class LLMClientProto(Protocol):
-    """
-    Structural contract for any LLM client we pass around.
-    We only assume: given a phrase, it can maybe return an RGB tuple.
-    """
-
-    def query_rgb(self, phrase: str) -> RGB | None: ...
-
-    # If rgb_pipeline.process_color_phrase actually calls a different method,
-    # update this Protocol to match that method signature.
 
 
 @lru_cache(maxsize=1)
@@ -92,7 +70,7 @@ def extract_all_descriptive_color_phrases(
     known_modifiers: set[str],
     all_webcolor_names: set[str],
     expression_map: dict,
-    llm_client: LLMClientProto | None = None,
+    llm_client: LLMClientProtocol | None = None,
     nlp: Language | None = None,
     debug: bool = False,
 ) -> list[str]:
@@ -142,7 +120,7 @@ def extract_phrases_from_segment(
     known_tones: set[str],
     all_webcolor_names: set[str],
     expression_map: dict,
-    llm_client: LLMClientProto | None = None,
+    llm_client: LLMClientProtocol | None = None,
     cache=None,
     nlp: Language | None = None,
     debug: bool = False,
@@ -266,7 +244,7 @@ def process_segment_colors(
     color_phrases: list[str],
     known_modifiers: set[str],
     known_tones: set[str],
-    llm_client: LLMClientProto | None = None,
+    llm_client: LLMClientProtocol | None = None,
     cache=None,
     debug: bool = False,
 ) -> tuple[list[str], list[RGB | None]]:
@@ -280,14 +258,11 @@ def process_segment_colors(
 
     for phrase in color_phrases:
         try:
-            # NOTE: we pass llm_client directly, no cast(object, ...)
-            # If process_color_phrase expects the core LLM proto,
-            # we just cast to that proto instead of 'object'.
             simple, rgb = process_color_phrase(
                 phrase,
                 known_modifiers,
                 known_tones,
-                llm_client=cast(CoreLLMClientProto | None, llm_client),
+                llm_client=llm_client,
                 cache=cache,
                 debug=debug,
             )
@@ -316,7 +291,7 @@ def aggregate_color_phrase_results(
     known_tones: set[str],
     all_webcolor_names: set[str],
     expression_map: dict,
-    llm_client: LLMClientProto | None = None,
+    llm_client: LLMClientProtocol | None = None,
     cache=None,
     nlp: Language | None = None,
     debug: bool = False,

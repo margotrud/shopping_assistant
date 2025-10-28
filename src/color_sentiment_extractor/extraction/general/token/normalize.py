@@ -11,6 +11,7 @@ Does: Provide safe singularization and deterministic token normalization
 Returns: singularize(), normalize_token(), get_tokens_and_counts().
 Used by: Tokenization pipelines and color/modifier extraction stages.
 """
+
 from __future__ import annotations
 
 import re
