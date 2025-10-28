@@ -23,11 +23,11 @@ from typing import Any, Literal, overload
 
 # --- optional json5 support (no hard dependency) -----------------------------
 try:
-    # json5 may not be installed in all environments (incl. CI).
-    # We declare a union type so mypy is happy without "type: ignore[assignment]".
-    import json5 as _json5  # type: ignore[import-not-found]
+    # json5 may not be installed in all environments (incl. CI),
+    # so we try to import it but we don't require it.
+    import json5 as _json5  # noqa: F401
 except Exception:  # pragma: no cover - only hit when json5 missing
-    _json5 = None  # type: ModuleType | None
+    _json5 = None  # noqa: F841
 
 # ── Public surface ────────────────────────────────────────────────────────────
 Mode = Literal["raw", "set", "validated_dict"]
