@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from functools import lru_cache
-from typing import Protocol
+from typing import Protocol, cast
 
 import spacy
 from spacy.language import Language
@@ -32,17 +32,16 @@ from .rgb_pipeline import process_color_phrase
 
 # ── Fuzzy matching setup (rapidfuzz → fallback fuzzywuzzy) ────────────────────
 class _RatioFn(Protocol):
-    def __call__(self, a: str, b: str, /) -> int: ...
-
-    # both rapidfuzz.fuzz.ratio and fuzzywuzzy.fuzz.ratio behave like this
+    def __call__(self, a: str, b: str, /) -> int:
+        ...  # both rapidfuzz.fuzz.ratio and fuzzywuzzy.fuzz.ratio follow this signature
 
 
 try:
-    from rapidfuzz import fuzz as _fuzz
+    from rapidfuzz import fuzz as _fuzz_lib
 except Exception:  # pragma: no cover
-    from fuzzywuzzy import fuzz as _fuzz
+    from fuzzywuzzy import fuzz as _fuzz_lib  # type: ignore[no-redef]
 
-ratio: _RatioFn = _fuzz.ratio
+ratio: _RatioFn = cast(_RatioFn, _fuzz_lib.ratio)
 
 
 # ── Types & Globals ───────────────────────────────────────────────────────────
