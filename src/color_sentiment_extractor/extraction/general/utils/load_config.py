@@ -18,7 +18,7 @@ import os
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType, TracebackType
+from types import TracebackType
 from typing import Any, Literal, overload
 
 # --- optional json5 support (no hard dependency) -----------------------------
@@ -239,9 +239,7 @@ def load_config(
                 f"{path.name}: expected list for mode 'set', got {type(data).__name__}"
             )
         non_scalars = [
-            x
-            for x in data
-            if not isinstance(x, (str, int, float, bool)) and x is not None
+            x for x in data if not isinstance(x, (str, int, float, bool)) and x is not None
         ]
         if non_scalars:
             preview = ", ".join(f"{type(x).__name__}" for x in non_scalars[:3])
