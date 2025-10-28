@@ -26,23 +26,22 @@ from color_sentiment_extractor.extraction.color.strategies import (
     extract_standalone_phrases,
 )
 from color_sentiment_extractor.extraction.general.token import recover_base
-
 from .rgb_pipeline import process_color_phrase
 
 
 # ── Fuzzy matching setup (rapidfuzz → fallback fuzzywuzzy) ────────────────────
 class _RatioFn(Protocol):
     def __call__(self, a: str, b: str, /) -> int: ...
-
     # both rapidfuzz.fuzz.ratio and fuzzywuzzy.fuzz.ratio behave like this
 
 
 try:
-    from rapidfuzz import fuzz as _fuzz  # type: ignore[import-not-found]
+    from rapidfuzz import fuzz as _fuzz
 except Exception:  # pragma: no cover
-    from fuzzywuzzy import fuzz as _fuzz  # type: ignore[import-not-found]
+    from fuzzywuzzy import fuzz as _fuzz
 
 ratio: _RatioFn = _fuzz.ratio
+
 
 # ── Types & Globals ───────────────────────────────────────────────────────────
 logger = logging.getLogger(__name__)
