@@ -15,15 +15,21 @@
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
 </p>
 
+_Imagine a shopping assistant that understands how you feel about colors._  
+_You tell it: “I love red lipstick, but not too shiny or too purple — I prefer deeper, muted shades like raspberry or bordeaux.”_  
+_The system then interprets your preferences and suggests matching products available in stock._  
+
+💄 This project builds the **foundation for that vision**:  
+it extracts **color names, modifiers, and sentiments** from text,  
+and maps them to **RGB tones** to understand user aesthetics at scale.
+
 > 🧩 **Note**  
 > This repository is the **first functional module** of a larger *Shopping Assistant* NLP project.  
 > It focuses on **color sentiment extraction**, a core capability that will later integrate into  
 > product description analysis, style classification, and emotional search pipelines.
 
-Given text like _“I love bright red but I hate purple”_, this project:
-- extracts **color mentions** (single tones and compound phrases),
-- splits them by **positive vs. negative** sentiment,
-- resolves each color name to **RGB** (CSS/XKCD first, LLM fallback).
+Given text like _“I love bright red but I hate purple”_,  
+the extractor identifies positive and negative color tones and resolves them to RGB.
 
 ---
 
@@ -79,6 +85,9 @@ Output:
   ]
 }
 ```
+### 🖼️ Visual Demo
+
+![Color Sentiment Demo](docs/demo_palette.png)
 
 ---
 
@@ -108,7 +117,15 @@ color-sentiment-extractor/
 └── pytest.ini                        # Pytest configuration
 ```
 
+
 ---
+## 🧠 Tech Stack
+
+- **Language:** Python 3.10–3.12  
+- **Core NLP:** spaCy, NLTK  
+- **Fuzzy Matching:** fuzzywuzzy / rapidfuzz  
+- **LLM Fallback:** OpenRouter / transformers  
+- **Testing & Quality:** pytest, mypy, Ruff, GitHub Actions, Codecov
 
 ## ⚙️ How It Works
 
