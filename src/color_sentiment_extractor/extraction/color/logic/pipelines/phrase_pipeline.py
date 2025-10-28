@@ -26,6 +26,7 @@ from color_sentiment_extractor.extraction.color.strategies import (
     extract_standalone_phrases,
 )
 from color_sentiment_extractor.extraction.general.token import recover_base
+
 from .rgb_pipeline import process_color_phrase
 
 
