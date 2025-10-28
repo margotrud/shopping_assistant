@@ -15,6 +15,11 @@
   <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT">
 </p>
 
+> 🧩 **Note**  
+> This repository is the **first functional module** of a larger *Shopping Assistant* NLP project.  
+> It focuses on **color sentiment extraction**, a core capability that will later integrate into  
+> product description analysis, style classification, and emotional search pipelines.
+
 Given text like _“I love bright red but I hate purple”_, this project:
 - extracts **color mentions** (single tones and compound phrases),
 - splits them by **positive vs. negative** sentiment,
@@ -123,6 +128,17 @@ color-sentiment-extractor/
 ```bash
 pytest -q
 ```
+---
+
+## 🔮 Roadmap
+
+This color sentiment extractor is only the **first step** of a broader NLP pipeline.  
+Next planned modules will include:
+- **Product description parsing** (extracting attributes like fabric, shape, and fit),
+- **Style and tone classification** (e.g., “minimalist”, “romantic”, “sporty”),
+- **User sentiment aggregation** for brand perception and trend analysis.
+
+Each stage builds on the same design principles — **typed, tested, modular, and interpretable**.
 
 ---
 
@@ -130,6 +146,7 @@ pytest -q
 
 MIT License – free to use, modify, and share.  
 © 2025 Margot Rudnianski
+
 
 ---
 
