@@ -31,6 +31,10 @@ and maps them to **RGB tones** to understand user aesthetics at scale.
 Given text like _“I love bright red but I hate purple”_,  
 the extractor identifies positive and negative color tones and resolves them to RGB.
 
+This project was also an opportunity to explore Natural Language Processing - a domain I
+wanted to understand more deeply beyond classical data science. I built it as a 
+self-learning challenge to strenghten my skills in text parsing, linguistic logic, and 
+LLM-based reasoning. 
 ---
 
 ## 🚀 Quick Start
