@@ -175,10 +175,19 @@ def test_load_config_allow_comments_with_fake_json5(tmp_data_dir, monkeypatch):
     cfg = tmp_data_dir / "cmt.json"
     cfg.write_text('{"a":1, /*c*/ "b":2, }', encoding="utf-8")
 
+    # Fake json5 module exposing .load(file)
     fake_json5 = SimpleNamespace(load=lambda f: {"a": 1, "b": 2})
+
+    # 1. Inject fake module into sys.modules for completeness / future-proofing
     monkeypatch.setitem(sys.modules, "json5", fake_json5)
 
+    # 2. Patch the module-level _JSON5 used inside load_config._read_and_parse_json()
+    #    (In production CI, _JSON5 is None because json5 isn't installed.
+    #     Here we replace it with our fake so allow_comments=True works.)
+    monkeypatch.setattr(LC, "_JSON5", fake_json5, raising=True)
+
     out = load_config("cmt", mode="raw", allow_comments=True)
+
     assert out == {"a": 1, "b": 2}
 
 
