@@ -24,7 +24,7 @@ from typing import Any, Literal, Optional, overload
 # --- optional json5 support (no hard dependency) -----------------------------
 # We want: _JSON5: ModuleType | None
 # So mypy doesn't complain when json5 is missing.
-_JSON5: Optional[ModuleType]
+_JSON5: ModuleType | None
 try:
     import json5 as _imported_json5
     _JSON5 = _imported_json5
